@@ -42,6 +42,8 @@ from app.paths import resource_path, writable_base  # noqa: E402
 from app.session import SessionWorker  # noqa: E402
 from app.spreadsheet import FIXED_COLUMNS, write_example_template  # noqa: E402
 from app.toast import ToastManager  # noqa: E402
+from app.update_check import UpdateCheckWorker  # noqa: E402
+from app.updater import Release  # noqa: E402
 
 # Indices das telas: login -> carregando -> ambiente.
 LOGIN_PAGE, LOADING_PAGE, ENV_PAGE = 0, 1, 2
@@ -149,6 +151,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._start_session_thread()
+        self._start_update_check_thread()
 
         # Com token guardado, nem aparece a tela de login: vai direto ao carregamento.
         self._refresh_saved_token_ui()
@@ -454,6 +457,15 @@ class MainWindow(QMainWindow):
         self._session.disconnected.connect(self._on_disconnected)
         self._session.log.connect(self._notify_log)
         self._session_thread.start()
+
+    def _start_update_check_thread(self) -> None:
+        self._update_thread = QThread(self)
+        self._update = UpdateCheckWorker()
+        self._update.moveToThread(self._update_thread)
+        self._update.available.connect(self._on_update_available)
+
+        self._update_thread.started.connect(self._update.request_check.emit)
+        self._update_thread.start()
 
     # ------------------------------------------------------ acoes do usuario
     def _on_connect_clicked(self) -> None:
@@ -771,7 +783,19 @@ class MainWindow(QMainWindow):
     def _notify(self, message: str, kind: str = "info", duration_ms: int | None = None) -> None:
         self._toast.notify(message, kind, duration_ms)
 
+    def _on_update_available(self, release: Release) -> None:
+        self._notify(
+            f"Nova versao {release.versao} disponivel. "
+            f"Baixe em: {release.page_url}",
+            "info",
+            9000,
+        )
+
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._update_thread.quit()
+        # O timeout do requests limita a conexao e a leitura separadamente, entao
+        # uma rede ruim pode segurar a thread por quase o dobro do TIMEOUT_S.
+        self._update_thread.wait(10000)
         self._session_thread.quit()
         self._session_thread.wait(5000)
         super().closeEvent(event)
