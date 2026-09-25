@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Relatorios e logs gerados a cada execucao
+reports/
+app_error.log
+
+# Planilhas de teste (dados ficticios, so para exercitar a importacao)
+teste_importacao_*.xlsx
+
+# Empacotamento (PyInstaller)
+# O .spec e a configuracao do build e DEVE ser versionado (esta fora do ignore).
+build/
+dist/
+
+# Estado da ferramenta Command Code (config local / historico de comandos)
+.commandcode/
+
+# Logos de clientes e parceiros: material de apoio local, nao faz parte do app
+# (o app usa app/assets/lk_white.png). Fora do repositorio publico de proposito.
+logos-howbe/
+
+# Editores e sistema
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
