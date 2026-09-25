@@ -10,6 +10,10 @@ Boas praticas aplicadas:
 - animacao curta de entrada/saida, sem chamar atencao demais.
 """
 
+from __future__ import annotations
+
+from collections.abc import Callable
+
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
@@ -95,11 +99,22 @@ class ToastItem(QFrame):
 
     dismissed = Signal(object)
 
-    def __init__(self, message: str, kind: str, duration_ms: int | None, parent=None) -> None:
+    def __init__(
+        self,
+        message: str,
+        kind: str,
+        duration_ms: int | None,
+        parent=None,
+        action_label: str | None = None,
+        action_callback: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(parent)
         style = KIND_STYLES.get(kind, KIND_STYLES["info"])
         self._duration = style["duration"] if duration_ms is None else duration_ms
         self._anim: QPropertyAnimation | None = None
+        self._action_callback = action_callback
+        # Botao de acao e opcional: sem ele o toast continua exatamente como antes.
+        self.action_button: QPushButton | None = None
 
         self.setObjectName("toastCard")
         self.setFixedWidth(TOAST_WIDTH)
@@ -147,6 +162,17 @@ class ToastItem(QFrame):
         text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         row.addWidget(text, stretch=1)
 
+        if action_label is not None:
+            action = QPushButton(action_label)
+            # "primaryButton" reaproveita o botao de acao principal do tema:
+            # mesma linguagem visual do resto do app, inclusive o estado disabled
+            # usado durante o download do instalador.
+            action.setObjectName("primaryButton")
+            action.setCursor(Qt.CursorShape.PointingHandCursor)
+            action.clicked.connect(self._on_action_clicked)
+            self.action_button = action
+            row.addWidget(action, alignment=Qt.AlignmentFlag.AlignVCenter)
+
         close = CloseButton()
         close.clicked.connect(self.dismiss)
         row.addWidget(close, alignment=Qt.AlignmentFlag.AlignTop)
@@ -160,6 +186,22 @@ class ToastItem(QFrame):
     def _start_timer(self) -> None:
         if self._duration and self._duration > 0:
             self._timer.start(self._duration)
+
+    def _on_action_clicked(self) -> None:
+        # So existe quando o toast foi criado com acao; o botao chama o callback
+        # informado pela janela (que e quem conhece o Release e o worker).
+        if self._action_callback is not None:
+            self._action_callback()
+
+    def set_action_label(self, text: str) -> None:
+        """Atualiza o rotulo do botao de acao (ex.: progresso do download)."""
+        if self.action_button is not None:
+            self.action_button.setText(text)
+
+    def set_action_enabled(self, enabled: bool) -> None:
+        """Habilita/desabilita o botao de acao sem tocar no botao de fechar."""
+        if self.action_button is not None:
+            self.action_button.setEnabled(enabled)
 
     def enterEvent(self, event) -> None:  # noqa: N802
         # Pausa o auto-fechamento enquanto o mouse estiver sobre o aviso.
@@ -226,8 +268,22 @@ class ToastManager(QWidget):
         self._top_offset = offset
         self._reposition()
 
-    def notify(self, message: str, kind: str = "info", duration_ms: int | None = None) -> None:
-        item = ToastItem(message, kind, duration_ms, self)
+    def notify(
+        self,
+        message: str,
+        kind: str = "info",
+        duration_ms: int | None = None,
+        action_label: str | None = None,
+        action_callback: Callable[[], None] | None = None,
+    ) -> ToastItem:
+        item = ToastItem(
+            message,
+            kind,
+            duration_ms,
+            self,
+            action_label=action_label,
+            action_callback=action_callback,
+        )
         item.dismissed.connect(self._on_dismissed)
         self._items.append(item)
 
@@ -240,6 +296,7 @@ class ToastManager(QWidget):
         # Posicoes definidas na hora (empilhamento previsivel); so a entrada anima.
         self._relayout()
         item.slide_in_from_right()
+        return item
 
     def _on_dismissed(self, item: ToastItem) -> None:
         if item in self._items:

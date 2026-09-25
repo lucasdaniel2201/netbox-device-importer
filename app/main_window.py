@@ -41,8 +41,9 @@ from app.loading import Spinner  # noqa: E402
 from app.paths import resource_path, writable_base  # noqa: E402
 from app.session import SessionWorker  # noqa: E402
 from app.spreadsheet import FIXED_COLUMNS, write_example_template  # noqa: E402
-from app.toast import ToastManager  # noqa: E402
+from app.toast import ToastItem, ToastManager  # noqa: E402
 from app.update_check import UpdateCheckWorker  # noqa: E402
+from app.update_download import UpdateDownloadWorker  # noqa: E402
 from app.updater import Release  # noqa: E402
 
 # Indices das telas: login -> carregando -> ambiente.
@@ -144,6 +145,11 @@ class MainWindow(QMainWindow):
         self._connected = False
         self._saved_token = credentials.load_token()
         self._pending_token = ""
+        # Referencia o toast de download enquanto ele existir: os sinais do worker
+        # podem chegar depois de o usuario fechar o aviso, e ai nao ha mais botao
+        # para atualizar (nem pode estourar RuntimeError de widget destruido).
+        self._download_item: ToastItem | None = None
+        self._shutting_down = False
 
         self._slow_hint_timer = QTimer(self)
         self._slow_hint_timer.setSingleShot(True)
@@ -152,6 +158,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._start_session_thread()
         self._start_update_check_thread()
+        self._start_download_thread()
 
         # Com token guardado, nem aparece a tela de login: vai direto ao carregamento.
         self._refresh_saved_token_ui()
@@ -466,6 +473,16 @@ class MainWindow(QMainWindow):
 
         self._update_thread.started.connect(self._update.request_check.emit)
         self._update_thread.start()
+
+    def _start_download_thread(self) -> None:
+        self._download_thread = QThread(self)
+        self._download = UpdateDownloadWorker()
+        self._download.moveToThread(self._download_thread)
+        self._download.progress.connect(self._on_download_progress)
+        self._download.finished.connect(self._on_download_finished)
+        self._download.failed.connect(self._on_download_failed)
+
+        self._download_thread.start()
 
     # ------------------------------------------------------ acoes do usuario
     def _on_connect_clicked(self) -> None:
@@ -784,18 +801,89 @@ class MainWindow(QMainWindow):
         self._toast.notify(message, kind, duration_ms)
 
     def _on_update_available(self, release: Release) -> None:
-        self._notify(
-            f"Nova versao {release.versao} disponivel. "
-            f"Baixe em: {release.page_url}",
+        if release.setup_url is None:
+            # Release sem instalador anexado: mantem o aviso antigo, so com o link.
+            self._notify(
+                f"Nova versao {release.versao} disponivel. "
+                f"Baixe em: {release.page_url}",
+                "info",
+                9000,
+            )
+            return
+
+        # duration_ms=0 de proposito: um aviso com botao nao pode sumir em 9
+        # segundos - quem vai decidir se baixa o instalador precisa de tempo, e o
+        # _start_timer do ToastItem so liga o timer quando a duracao e > 0.
+        item = self._toast.notify(
+            f"Nova versao {release.versao} disponivel.",
             "info",
-            9000,
+            duration_ms=0,
+            action_label="Baixar e instalar",
+            action_callback=lambda: self._on_download_clicked(release),
         )
+        self._download_item = item
+        # Se o usuario fechar o aviso no meio do download, limpamos a referencia:
+        # os sinais do worker continuam chegando, mas nao ha mais botao a atualizar.
+        item.dismissed.connect(self._on_download_item_dismissed)
+
+    def _on_download_clicked(self, release: Release) -> None:
+        item = self._download_item
+        if item is None or release.setup_url is None:
+            return
+        item.set_action_enabled(False)
+        item.set_action_label("Baixando...")
+        self._download.request_download.emit(release.setup_url)
+
+    def _on_download_item_dismissed(self, item: ToastItem) -> None:
+        if self._download_item is item:
+            self._download_item = None
+
+    def _on_download_progress(self, baixados: int, total: int) -> None:
+        if self._shutting_down:
+            return
+        item = self._download_item
+        if item is None:
+            return
+        if total > 0:
+            percentual = int(baixados * 100 / total)
+            item.set_action_label(f"Baixando... {percentual}%")
+        else:
+            # Sem Content-Length (proxy/redirect sem cabecalho): nao da para
+            # calcular percentual; o rotulo so deixa claro que continua baixando.
+            item.set_action_label("Baixando...")
+
+    def _on_download_finished(self, _caminho: str) -> None:
+        if self._shutting_down:
+            return
+        item = self._download_item
+        if item is None:
+            return
+        item.set_action_label("Abrindo o instalador...")
+        item.set_action_enabled(False)
+
+    def _on_download_failed(self, message: str) -> None:
+        if self._shutting_down:
+            return
+        item = self._download_item
+        if item is not None:
+            # Fecha o aviso com o botao de download (ja nao faz sentido) e mostra
+            # a causa num toast de erro. Acao explicita do usuario NAO e silenciosa,
+            # diferente da checagem automatica em update_check.py.
+            item.close_now()
+            self._download_item = None
+        self._notify(f"Nao foi possivel baixar a atualizacao: {message}", "error")
 
     def closeEvent(self, event) -> None:  # noqa: N802
+        self._shutting_down = True
+        # Pede o cancelamento do download antes de qualquer espera: evita que um
+        # bloco recem-chegado continue escrevendo enquanto encerramos as threads.
+        self._download.cancel()
         self._update_thread.quit()
         # O timeout do requests limita a conexao e a leitura separadamente, entao
         # uma rede ruim pode segurar a thread por quase o dobro do TIMEOUT_S.
         self._update_thread.wait(10000)
+        self._download_thread.quit()
+        self._download_thread.wait(10000)
         self._session_thread.quit()
         self._session_thread.wait(5000)
         super().closeEvent(event)
