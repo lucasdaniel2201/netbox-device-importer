@@ -1,0 +1,74 @@
+# -----------------------------------------------------------------------
+# Workflow de testes automatizados do netbox-importer
+# -----------------------------------------------------------------------
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Job principal — roda a suíte de unittest em diferentes versões do Python
+  # ---------------------------------------------------------------------
+  rodar-testes:
+    # Usamos windows-latest porque app/credentials.py depende da DPAPI do
+    # Windows (ctypes.windll.crypt32). Em runners Linux/macOS esse módulo
+    # simplesmente não existe e vários testes falham ao importar.
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Versões suportadas do Python
+        python-version: ["3.12", "3.14"]
+
+    # QT_QPA_PLATFORM=offscreen evita que testes que inicializam Qt abortem
+    # por falta de display — os runners do GitHub Actions não possuem
+    # interface gráfica, e sem essa variável o Qt encerra o processo com
+    # um erro fatal antes mesmo dos testes rodarem.
+    env:
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v5
+
+      - name: Configurar Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Atualizar pip
+        run: python -m pip install --upgrade pip
+
+      - name: Instalar dependências
+        run: python -m pip install -r requirements.txt
+
+      - name: Rodar a suíte de testes
+        run: python -m unittest discover -s tests -v
+
+  # ---------------------------------------------------------------------
+  # Lint: roda no linux de proposito. O Ruff nao depende de nada do Windows
+  # (ao contrario dos testes, que usam a DPAPI), entao o job sobe mais rapido
+  # e mais barato.
+  # ---------------------------------------------------------------------
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar as dependências de desenvolvimento
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Rodar o Ruff
+        run: python -m ruff check .
