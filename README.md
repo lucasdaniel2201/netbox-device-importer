@@ -308,5 +308,6 @@ MIT — veja [LICENSE](LICENSE).
 
 **Lucas Daniel Santos** — Analista de Implantação | Infraestrutura e Automação
 
+- Site: [lucasdaniel2201.github.io](https://lucasdaniel2201.github.io)
 - GitHub: [@lucasdaniel2201](https://github.com/lucasdaniel2201)
 - LinkedIn: [lucas-santos](https://www.linkedin.com/in/lucas-santos-a620011b9)
