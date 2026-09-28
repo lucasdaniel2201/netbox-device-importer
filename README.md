@@ -9,6 +9,12 @@ Registra em lote o parque de câmeras e switches no NetBox a partir de uma plani
 
 App desktop em Python + PySide6 (Qt6) que documenta câmeras e switches no **NetBox v4.3.6** usando a **API REST** (`/api/...`). Não há scraping: tudo é JSON sobre HTTP com um token de API.
 
+**Projetos relacionados:** este app é o par do
+[zabbix-camera-importer](https://github.com/lucasdaniel2201/zabbix-camera-importer),
+que coloca o mesmo parque de câmeras para **monitorar** no Zabbix. Um registra o
+que existe no NetBox; o outro garante que o que existe seja monitorado. A
+planilha de entrada pode ser a mesma nos dois.
+
 O app é pensado para usuário leigo: login por token, geração de planilha modelo com listas suspensas do próprio NetBox, prévia do que será criado antes de enviar qualquer coisa e relatórios da execução.
 
 **Sumário**
