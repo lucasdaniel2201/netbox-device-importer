@@ -19,7 +19,8 @@ from app import credentials  # noqa: E402
 
 SEGREDO = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
 HEX_40 = re.compile(r"\b[0-9a-fA-F]{40}\b")
-DPAPI = credentials.is_available()
+# DPAPI especificamente: `is_available()` agora aceita tambem chaveiro.
+DPAPI = credentials.dpapi_available()
 
 
 class CredentialsTestCase(unittest.TestCase):
@@ -85,6 +86,57 @@ class TestProtecaoDoToken(CredentialsTestCase):
 
     def test_esquecer_sem_arquivo_nao_quebra(self):
         credentials.clear_token()
+
+
+class TestBackendDoChaveiro(unittest.TestCase):
+    """`keyring.get_keyring()` devolve `fail` quando nao ha chaveiro algum.
+
+    Tratar isso como "ha chaveiro" faria a tela anunciar uma protecao inexistente.
+    """
+
+    def _modulos(self, get_keyring):
+        import types
+
+        keyring = types.ModuleType("keyring")
+        backends = types.ModuleType("keyring.backends")
+        fail = types.ModuleType("keyring.backends.fail")
+
+        class FailKeyring:  # nome igual ao do backend real
+            pass
+
+        fail.Keyring = FailKeyring
+        keyring.get_keyring = get_keyring
+        keyring.backends = backends
+        return {"keyring": keyring, "keyring.backends": backends, "keyring.backends.fail": fail}
+
+    def test_backend_fail_nao_conta_como_chaveiro(self):
+        with mock.patch.dict(sys.modules, self._modulos(lambda: __import__("sys").modules[
+            "keyring.backends.fail"
+        ].Keyring())):
+            self.assertIsNone(credentials._keyring())
+
+    def test_backend_utilizado_conta_como_chaveiro(self):
+        with mock.patch.dict(sys.modules, self._modulos(lambda: object())):
+            self.assertIsNotNone(credentials._keyring())
+
+    def test_keyring_ausente_devolve_none(self):
+        with mock.patch.dict(sys.modules, {"keyring": None}):
+            self.assertIsNone(credentials._keyring())
+
+
+class TestArquivoSemCifra(unittest.TestCase):
+    """Backend `file` (Linux sem chaveiro): o token fica so do dono."""
+
+    @unittest.skipIf(DPAPI, "no Windows o backend e o DPAPI")
+    def test_arquivo_nasce_com_permissao_do_dono(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            caminho = Path(tmp) / "token.dat"
+            with mock.patch.object(credentials, "token_path", lambda: caminho):
+                credentials.save_token(SEGREDO)
+                modo = caminho.stat().st_mode & 0o777
+            self.assertEqual(modo, credentials.FILE_MODE)
 
 
 class TestLocalDoArquivo(unittest.TestCase):

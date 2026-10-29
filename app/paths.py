@@ -58,9 +58,18 @@ def is_writable(directory: Path) -> bool:
 
 
 def user_data_dir() -> Path:
-    """Pasta de dados do usuario (fallback quando a do .exe nao e gravavel)."""
-    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
-    return Path(base) / APP_FOLDER_NAME
+    """Pasta de dados do usuario (fallback quando a do .exe nao e gravavel).
+
+    No Windows e `%LOCALAPPDATA%`. No Linux (versao de teste) segue o XDG:
+    `$XDG_DATA_HOME` ou `~/.local/share`.
+    """
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+    if base:
+        return Path(base) / APP_FOLDER_NAME
+    if os.name == "posix":
+        xdg = os.environ.get("XDG_DATA_HOME")
+        return (Path(xdg) if xdg else Path.home() / ".local" / "share") / APP_FOLDER_NAME
+    return Path.home() / APP_FOLDER_NAME
 
 
 def writable_base() -> Path:

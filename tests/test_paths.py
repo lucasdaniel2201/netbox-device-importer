@@ -59,7 +59,8 @@ class TestModoEmpacotado(unittest.TestCase):
         patches = self._frozen(exe_dir, r"C:\Temp\_MEI999")
         with patches[0], patches[1], patches[2]:
             caminho = paths.resource_path("app", "assets")
-        self.assertEqual(caminho, Path(r"C:\Temp\_MEI999\app\assets"))
+        # Montado com Path para o teste valer nos dois separadores (roda no Linux no CI).
+        self.assertEqual(caminho, Path(r"C:\Temp\_MEI999") / "app" / "assets")
 
     def test_saidas_ficam_ao_lado_do_exe(self):
         """Instalacao por usuario (%LOCALAPPDATA%): a pasta do exe e gravavel."""
