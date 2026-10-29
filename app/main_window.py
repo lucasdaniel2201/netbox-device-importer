@@ -37,6 +37,8 @@ if str(ROOT) not in sys.path:
 from app import credentials, provision, theme  # noqa: E402
 from app.config import NETBOX_URL  # noqa: E402
 from app.import_dialog import ImportDialog  # noqa: E402
+from app.link_dialog import LinkImportDialog  # noqa: E402
+from app.link_sheet import write_example_template as write_link_template  # noqa: E402
 from app.loading import Spinner  # noqa: E402
 from app.paths import resource_path, writable_base  # noqa: E402
 from app.session import SessionWorker  # noqa: E402
@@ -54,6 +56,7 @@ LOGIN_BANNER_HEIGHT = 190
 ENV_BANNER_HEIGHT = 76
 SNAPSHOT_FILENAME = "netbox_schema.json"
 TEMPLATE_FILENAME = "modelo_cameras_netbox.xlsx"
+TEMPLATE_LINKS_FILENAME = "modelo_links_netbox.xlsx"
 # Depois disso a tela de carregamento sugere que a rede pode estar ruim.
 SLOW_HINT_MS = 6000
 
@@ -90,6 +93,7 @@ ENDPOINT_LABELS: tuple[tuple[str, str], ...] = (
     ("tenant", "Tenants"),
     ("interface", "Interfaces"),
     ("ip_address", "IP addresses"),
+    ("prefix", "Prefixos de IP"),
     ("tag", "Tags"),
 )
 
@@ -441,6 +445,29 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(import_box)
 
+        link_box = QGroupBox("Links IP · blocos públicos, LAN e endereço do link")
+        link_layout = QHBoxLayout(link_box)
+
+        self.link_note = QLabel(
+            "Para documentar o link de internet de cada site: bloco público, bloco LAN "
+            "e IP do roteador. O device precisa já existir no NetBox."
+        )
+        self.link_note.setWordWrap(True)
+        self.link_note.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        link_layout.addWidget(self.link_note, stretch=1)
+
+        self.link_template_button = QPushButton("Baixar modelo de links")
+        self.link_template_button.setEnabled(False)
+        self.link_template_button.clicked.connect(self._on_download_link_template)
+        link_layout.addWidget(self.link_template_button)
+
+        self.link_import_button = QPushButton("Importar links")
+        self.link_import_button.setEnabled(False)
+        self.link_import_button.clicked.connect(self._on_open_link_import)
+        link_layout.addWidget(self.link_import_button)
+
+        layout.addWidget(link_box)
+
         self.errors_label = QLabel("")
         self.errors_label.setWordWrap(True)
         self.errors_label.setStyleSheet(f"color: {theme.WARNING};")
@@ -514,7 +541,7 @@ class MainWindow(QMainWindow):
     def _refresh_saved_token_ui(self) -> None:
         tem = bool(self._saved_token)
         self.saved_note.setText(
-            "Ha um token guardado nesta maquina (cifrado pelo Windows)."
+            f"Ha um token guardado nesta maquina ({credentials.protection_label()})."
         )
         self.saved_note.setVisible(tem)
         self.forget_button.setVisible(tem)
@@ -532,7 +559,9 @@ class MainWindow(QMainWindow):
             return
         self._saved_token = token
         self._refresh_saved_token_ui()
-        self._notify("Token guardado nesta maquina (cifrado pelo Windows).", "info")
+        self._notify(
+            f"Token guardado nesta maquina ({credentials.protection_label()}).", "info"
+        )
 
     def _on_refresh_clicked(self) -> None:
         self.refresh_button.setEnabled(False)
@@ -615,6 +644,8 @@ class MainWindow(QMainWindow):
         self.sites_note.setText("")
         self.template_button.setEnabled(False)
         self.open_import_button.setEnabled(False)
+        self.link_template_button.setEnabled(False)
+        self.link_import_button.setEnabled(False)
         self.summary_label.setText("Consultando o ambiente...")
         self._go_login()
         self._notify("Sessao encerrada.", "info")
@@ -640,6 +671,7 @@ class MainWindow(QMainWindow):
         self._populate_tree(snapshot)
         self._update_sites_note()
         self.open_import_button.setEnabled(True)
+        self.link_import_button.setEnabled(True)
 
         if errors:
             # Resumo curto por conjunto: o texto completo de cada erro ja fica no
@@ -719,6 +751,7 @@ class MainWindow(QMainWindow):
             "Preencha uma linha por câmera."
         )
         self.template_button.setEnabled(bool(sites))
+        self.link_template_button.setEnabled(bool(sites))
 
     def _on_download_template(self) -> None:
         snapshot = self._snapshot
@@ -756,6 +789,49 @@ class MainWindow(QMainWindow):
         dialog = ImportDialog(self, snapshot, self._session)
         dialog.exec()
         # A importacao pode ter criado referencias: recarrega a tela.
+        self._populate(snapshot)
+
+    def _on_download_link_template(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        sites = provision.site_names(snapshot)
+        if not sites:
+            self._notify("Nao ha sites no NetBox para montar a lista.", "warning")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Salvar modelo de links IP",
+            str(Path.home() / TEMPLATE_LINKS_FILENAME),
+            "Excel (*.xlsx)",
+        )
+        if not path:
+            return
+        papeis = provision.reference_labels(snapshot, "prefix_roles")
+        try:
+            write_link_template(
+                Path(path),
+                sites=sites,
+                prefix_roles=papeis,
+                devices=provision.device_names(snapshot),
+            )
+        except Exception as exc:
+            self._notify(f"Nao foi possivel salvar o modelo de links: {exc}", "error")
+            return
+        self._notify(
+            f"Modelo de links salvo: {len(sites)} sites, {len(papeis)} papeis de prefixo "
+            f"e {len(provision.device_names(snapshot))} devices nas listas suspensas.",
+            "success",
+        )
+
+    def _on_open_link_import(self) -> None:
+        snapshot = self._snapshot
+        if snapshot is None:
+            return
+        dialog = LinkImportDialog(self, snapshot, self._session)
+        dialog.exec()
+        # A importacao cria prefixos e IPs: recarrega as contagens da tela.
         self._populate(snapshot)
 
     # ------------------------------------------------------------- estados

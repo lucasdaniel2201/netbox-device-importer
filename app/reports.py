@@ -17,6 +17,7 @@ from typing import Any
 from app.paths import output_dir
 
 PREFIX = "netbox-import"
+LINK_PREFIX = "netbox-links"
 
 # Colunas do CSV de resultado (as mesmas chaves do JSON).
 RESULT_FIELDS: tuple[str, ...] = (
@@ -30,14 +31,27 @@ RESULT_FIELDS: tuple[str, ...] = (
     "request_id",
 )
 
+# Resultado da importacao de links ip (uma linha por link, nao por device).
+LINK_RESULT_FIELDS: tuple[str, ...] = (
+    "row_number",
+    "site",
+    "device",
+    "public_block",
+    "link_ip",
+    "status",
+    "message",
+    "warnings",
+    "request_id",
+)
+
 
 def reports_dir() -> Path:
     """Pasta gravavel dos relatorios (criada se necessario)."""
     return output_dir("reports")
 
 
-def report_paths(timestamp: str) -> dict[str, Path]:
-    base = reports_dir() / f"{PREFIX}-{timestamp}"
+def report_paths(timestamp: str, prefix: str = PREFIX) -> dict[str, Path]:
+    base = reports_dir() / f"{prefix}-{timestamp}"
     return {
         "log": Path(f"{base}.log"),
         "json": Path(f"{base}.json"),
@@ -50,16 +64,18 @@ def write_reports(
     summary: dict[str, Any],
     results: list[dict[str, Any]],
     log_lines: list[str],
+    prefix: str = PREFIX,
+    fieldnames: tuple[str, ...] = RESULT_FIELDS,
 ) -> dict[str, Path]:
     """Grava os tres arquivos da execucao e devolve os caminhos."""
-    paths = report_paths(timestamp)
+    paths = report_paths(timestamp, prefix)
     paths["log"].write_text("\n".join(log_lines) + "\n", encoding="utf-8")
     paths["json"].write_text(
         json.dumps({"summary": summary, "results": results}, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
     with paths["csv"].open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(RESULT_FIELDS), extrasaction="ignore")
+        writer = csv.DictWriter(handle, fieldnames=list(fieldnames), extrasaction="ignore")
         writer.writeheader()
         writer.writerows(results)
     return paths

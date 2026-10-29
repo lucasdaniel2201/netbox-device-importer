@@ -4,7 +4,9 @@ O `SessionWorker` e dono de um unico `NetBoxClient` (e da sua sessao HTTP): cone
 descobrir o ambiente e (mais adiante) importar acontecem todos na mesma thread e
 reusam a mesma sessao - sem reconectar entre etapas.
 
-O token vive apenas em memoria: nao e gravado em disco em nenhum momento.
+O worker nunca grava o token: ele existe so em memoria aqui. Quando o app guarda o
+token entre execucoes, quem cuida disso e `app/credentials.py` (DPAPI no Windows,
+chaveiro ou arquivo 0600 fora dele).
 """
 
 from __future__ import annotations
@@ -44,6 +46,7 @@ class SessionWorker(QObject):
     request_save_snapshot = Signal(str)
     request_provision = Signal(object)  # lista de Reference a criar
     request_import = Signal(object)  # ImportPlan
+    request_import_links = Signal(object)  # LinkPlan
     request_cancel = Signal()
     request_logout = Signal()
 
@@ -58,6 +61,9 @@ class SessionWorker(QObject):
     progress = Signal(int, int, str, str)  # indice, total, device, status
     import_done = Signal(dict)
     import_failed = Signal(str)
+    links_progress = Signal(int, int, str, str)
+    links_done = Signal(dict)
+    links_failed = Signal(str)
     log = Signal(str)
     disconnected = Signal()
 
@@ -72,6 +78,7 @@ class SessionWorker(QObject):
         self.request_save_snapshot.connect(self.save_snapshot)
         self.request_provision.connect(self.provision_references)
         self.request_import.connect(self.run_import)
+        self.request_import_links.connect(self.run_links_import)
         self.request_cancel.connect(self.cancel)
         self.request_logout.connect(self.logout)
 
@@ -372,6 +379,301 @@ class SessionWorker(QObject):
 
         summary["report_paths"] = {key: str(value) for key, value in paths.items()}
         self.import_done.emit(summary)
+
+    def _ensure_device(self, client, row) -> tuple[dict | None, str, list[str]]:
+        """Device da linha: acha no site ou **cria** (com fabricante e device-type).
+
+        Retorna (device, o que foi criado, problemas). Criar aqui e o que permite
+        uma planilha so: o roteador do site nasce junto com o link, no site da linha.
+        """
+        try:
+            device = provision.device_by_name(client, row.device, row.site_id)
+        except Exception as exc:
+            return None, "", [f"device '{row.device}': {exc}"]
+        if device is not None:
+            return device, "", []
+
+        if not row.vendor or not row.model:
+            return (
+                None,
+                "",
+                [
+                    f"device '{row.device}' nao existe e a linha nao traz Fabricante e "
+                    "Modelo para cria-lo."
+                ],
+            )
+
+        snapshot = self._snapshot or {}
+        passos: list[str] = []
+        try:
+            manufacturer_id = row.manufacturer_id
+            if manufacturer_id is None:
+                criado = provision.create_reference(
+                    client,
+                    "manufacturer",
+                    {"name": row.vendor, "slug": import_plan.slugify(row.vendor)},
+                )
+                manufacturer_id = criado.get("id")
+                provision.refresh_reference_objects(client, snapshot, ("manufacturers",))
+                passos.append(f"fabricante '{row.vendor}'")
+
+            device_type_id = row.device_type_id
+            if device_type_id is None:
+                criado = provision.create_reference(
+                    client,
+                    "device_type",
+                    {
+                        "model": row.model,
+                        "slug": import_plan.slugify(f"{row.vendor} {row.model}"),
+                        "manufacturer": manufacturer_id,
+                    },
+                )
+                device_type_id = criado.get("id")
+                provision.refresh_reference_objects(client, snapshot, ("device_types",))
+                passos.append(f"device-type '{row.vendor} {row.model}'")
+
+            criado = client.create(
+                provision.DEVICE_ENDPOINT, row.device_payload(device_type_id)
+            )
+            passos.append(f"device '{row.device}'")
+        except Exception as exc:
+            return None, "", passos + [f"criacao do device: {exc}"]
+        return criado, ", ".join(passos), []
+
+    def _apply_link(
+        self, client, plan, row, processados: set[str]
+    ) -> tuple[str, str, list[str], str, bool]:
+        """Executa uma linha de link: device -> prefixos -> interface -> IP.
+
+        O status da linha e o do **IP** (o endereco do link). Prefixo que falha vira
+        aviso, como no importador de cameras: um prefixo sem permissao nao pode
+        impedir o registro do endereco, e o aviso aparece na tela e no relatorio.
+        """
+        partes: list[str] = []
+        avisos: list[str] = []
+        request_id = ""
+
+        device, criado, problemas = self._ensure_device(client, row)
+        if device is None:
+            return "error", " | ".join(problemas) or f"device '{row.device}'", avisos, "", False
+        if criado:
+            partes.append(f"criado: {criado}")
+        device_criado = bool(criado)
+
+        site_do_device = (device.get("site") or {}).get("id")
+        if row.site_id is not None and site_do_device is not None and site_do_device != row.site_id:
+            # Sem isso, o prefixo iria para um site e o IP para o device de outro.
+            return (
+                "error",
+                f"device '{row.device}' existe, mas em outro site "
+                f"(a linha pede o site '{row.site}').",
+                avisos,
+                "",
+                device_criado,
+            )
+
+        for rotulo, payload in (
+            ("prefixo", row.public_prefix_payload(plan.scope_field)),
+            ("prefixo", row.lan_prefix_payload(plan.scope_field)),
+        ):
+            if payload is None:
+                continue
+            chave = str(payload.get("prefix") or "")
+            if chave in processados:
+                # O mesmo bloco em duas linhas (dois links do mesmo site): quem manda
+                # e a primeira linha. Sem isso, cada linha reescreveria a descricao do
+                # mesmo prefixo e a importacao nunca convergiria.
+                partes.append(f"prefixo {chave} mantido (ja processado nesta execucao)")
+                continue
+            try:
+                status, _prefixo_id, request_id = provision.upsert_prefix(
+                    client,
+                    payload,
+                    changelog_message="Importacao de links via planilha",
+                )
+            except Exception as exc:
+                # Nao marca como processado: se outra linha usa o mesmo bloco, ela
+                # ainda pode conseguir grava-lo.
+                avisos.append(f"{rotulo} {chave}: {exc}")
+                continue
+            processados.add(chave)
+            partes.append(f"{rotulo} {chave} {status}")
+
+        try:
+            status, interface_id = provision.upsert_named_interface(
+                client, device["id"], row.interface
+            )
+            partes.append(f"interface {row.interface} {status}")
+        except Exception as exc:
+            avisos.append(f"interface {row.interface}: {exc}")
+            interface_id = None
+
+        if interface_id is None:
+            interface_id = self._existing_interface_id_by_name(
+                client, device["id"], row.interface
+            )
+        if interface_id is None:
+            return (
+                "error",
+                "IP nao criado: o device nao tem a interface "
+                f"'{row.interface}' e nao foi possivel criar.",
+                avisos,
+                request_id,
+                device_criado,
+            )
+
+        try:
+            status, ip_id = provision.upsert_ip_address(
+                client,
+                row.link_ip,
+                interface_id,
+                custom_fields=row.ip_custom_fields,
+                description=row.ip_description(),
+            )
+            partes.append(f"ip {row.link_ip} {status}")
+        except Exception as exc:
+            return "error", f"ip {row.link_ip}: {exc}", avisos, request_id, device_criado
+
+        if ip_id is not None:
+            try:
+                if provision.set_primary_ip4_if_empty(client, device, ip_id):
+                    partes.append("primary_ip4 definido")
+                elif device.get("primary_ip4"):
+                    # Nao sobrescrevemos: o primario do roteador costuma ser o IP de
+                    # gerencia. Fica registrado para nao parecer que o app esqueceu.
+                    partes.append("primary_ip4 mantido (o device ja tinha um)")
+            except Exception as exc:
+                avisos.append(f"primary_ip4: {exc}")
+
+        return status, ", ".join(partes), avisos, request_id, device_criado
+
+    @staticmethod
+    def _existing_interface_id_by_name(client, device_id: int, name: str) -> int | None:
+        try:
+            existentes = client.fetch_all(
+                provision.INTERFACE_ENDPOINT, params={"device_id": device_id, "name": name}
+            )
+        except Exception:
+            return None
+        for item in existentes:
+            if str(item.get("name") or "").casefold() == (name or "").casefold():
+                return item.get("id")
+        return None
+
+    @Slot(object)
+    def run_links_import(self, plan) -> None:
+        """Executa o plano de links, linha a linha, gravando o relatorio no fim."""
+        client = self._client
+        if client is None:
+            self.links_failed.emit("Sessao desconectada. Conecte novamente.")
+            return
+        if not plan.can_import:
+            self.links_failed.emit(
+                "O plano de links ainda tem pendencias (linhas com erro ou campo "
+                "obrigatorio do NetBox sem valor)."
+            )
+            return
+
+        self._cancel = False
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        rows = plan.ready_rows
+        total = len(rows)
+
+        linhas_log = [f"=== Importacao de links iniciada em {timestamp} ===", f"Links: {total}"]
+        resultados: list[dict] = []
+        contagem = {"created": 0, "updated": 0, "exists": 0, "error": 0}
+        contagem_avisos = 0
+        cancelado = False
+        devices_criados = 0
+        processados: set[str] = set()
+
+        for indice, row in enumerate(rows, start=1):
+            if self._cancel:
+                cancelado = True
+                linhas_log.append("Execucao cancelada pelo usuario.")
+                break
+
+            try:
+                status, message, avisos, request_id, device_criado = self._apply_link(
+                    client, plan, row, processados
+                )
+            except Exception as exc:  # rede caiu no meio: nao perde o relatorio
+                status, message, avisos, request_id, device_criado = "error", str(exc), [], "", False
+
+            if avisos:
+                message += " | aviso: " + " | ".join(avisos)
+                contagem_avisos += 1
+            contagem[status] = contagem.get(status, 0) + 1
+
+            resultados.append(
+                {
+                    "row_number": row.row_number,
+                    "site": row.site,
+                    "device": row.device,
+                    "public_block": row.public_block,
+                    "link_ip": row.link_ip,
+                    "status": status,
+                    "message": message,
+                    "warnings": "; ".join(avisos),
+                    "request_id": request_id,
+                    "device_created": device_criado,
+                }
+            )
+            if device_criado:
+                devices_criados += 1
+            linhas_log.append(
+                f"{status:<8} | {row.site} | {row.link_ip} | {message}"
+            )
+            self.links_progress.emit(indice, total, f"{row.device} {row.link_ip}", status)
+
+        amostras_erro = [
+            {"name": f"{item['site']} ({item['link_ip']})", "message": item["message"]}
+            for item in resultados
+            if item["status"] == "error"
+        ][:3]
+        amostras_aviso = [
+            {"name": f"{item['site']} ({item['link_ip']})", "message": item["warnings"]}
+            for item in resultados
+            if item.get("warnings")
+        ][:3]
+
+        summary = {
+            "timestamp": timestamp,
+            "kind": "links",
+            "url": client.base_url,
+            "api_version": client.api_version,
+            "total": total,
+            "processed": len(resultados),
+            "created": contagem["created"],
+            "updated": contagem["updated"],
+            "exists": contagem["exists"],
+            "errors": contagem["error"],
+            "canceled": cancelado,
+            "warnings": contagem_avisos,
+            "prefixes": plan.prefix_count,
+            "devices_created": devices_criados,
+            "deduced_ips": sum(1 for row in rows if row.link_ip_deduced),
+            # Registra os valores fixos enviados: nao podem ser invisiveis.
+            "custom_fields": dict(plan.custom_fields_used),
+            "error_samples": amostras_erro,
+            "warning_samples": amostras_aviso,
+        }
+
+        try:
+            paths = reports.write_reports(
+                timestamp,
+                summary,
+                resultados,
+                linhas_log,
+                prefix=reports.LINK_PREFIX,
+                fieldnames=reports.LINK_RESULT_FIELDS,
+            )
+        except Exception as exc:
+            self.links_failed.emit(f"Falha ao salvar os relatorios: {exc}")
+            return
+
+        summary["report_paths"] = {key: str(value) for key, value in paths.items()}
+        self.links_done.emit(summary)
 
     @Slot()
     def cancel(self) -> None:

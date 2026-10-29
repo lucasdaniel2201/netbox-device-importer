@@ -231,11 +231,13 @@ def _alias_candidates(spec: ColumnSpec) -> list[str]:
     return [spec.label, spec.key, *spec.aliases]
 
 
-def _map_headers(header_cells: list[str]) -> tuple[dict[str, int], list[str]]:
+def map_headers(
+    header_cells: list[str], specs: tuple[ColumnSpec, ...], target_fields: list[str]
+) -> tuple[dict[str, int], list[str]]:
     """Mapeia cabecalhos para campos destino. Retorna (indices, colunas ausentes)."""
     wanted: dict[str, list[str]] = {
         spec.key: [_normalize_header(alias) for alias in _alias_candidates(spec)]
-        for spec in COLUMN_SPECS
+        for spec in specs
     }
     normalized_headers = [_normalize_header(cell) for cell in header_cells]
 
@@ -246,15 +248,17 @@ def _map_headers(header_cells: list[str]) -> tuple[dict[str, int], list[str]]:
                 index_by_target[key] = header_index
                 break
 
-    missing = [key for key in TARGET_FIELDS if key not in index_by_target]
+    missing = [key for key in target_fields if key not in index_by_target]
     return index_by_target, missing
 
 
-def _row_to_cells(values: list[str], index_by_target: dict[str, int]) -> dict[str, str]:
+def row_to_cells(
+    values: list[str], index_by_target: dict[str, int], target_fields: list[str]
+) -> dict[str, str]:
     cells: dict[str, str] = {}
     for key, idx in index_by_target.items():
         cells[key] = values[idx].strip() if idx < len(values) else ""
-    for key in TARGET_FIELDS:
+    for key in target_fields:
         cells.setdefault(key, "")
     return cells
 
@@ -330,7 +334,7 @@ def _rows_from_table(
     sites: list[str] | None,
     roles: list[str] | None,
 ) -> SheetResult:
-    index_by_target, missing = _map_headers(header_cells)
+    index_by_target, missing = map_headers(header_cells, COLUMN_SPECS, TARGET_FIELDS)
 
     # Coluna do modelo ausente e erro; o *valor* obrigatorio e outra checagem
     # (coluna "IP" pode vir em branco - a camera fica documentada sem endereco).
@@ -349,7 +353,7 @@ def _rows_from_table(
     skipped_empty = 0
     seen_names: dict[str, list[int]] = {}
     for row_number, values in enumerate(table_rows, start=2):
-        cells = _row_to_cells(values, index_by_target)
+        cells = row_to_cells(values, index_by_target, TARGET_FIELDS)
         if not cells.get("Name", ""):
             skipped_empty += 1
             continue
@@ -358,7 +362,7 @@ def _rows_from_table(
 
     rows: list[RowResult] = []
     for row_number, values in enumerate(table_rows, start=2):
-        cells = _row_to_cells(values, index_by_target)
+        cells = row_to_cells(values, index_by_target, TARGET_FIELDS)
         if not cells.get("Name", ""):
             continue
         rows.append(_validate_row(row_number, cells, seen_names, known_sites, known_roles))
@@ -372,49 +376,69 @@ def _rows_from_table(
     )
 
 
+def read_raw_table(path: Path) -> tuple[list[str], list[list[str]], list[str]]:
+    """Le a tabela crua de um .xlsx/.csv: (cabecalho, linhas, avisos).
+
+    O conteudo sai como texto: quem decide o que cada coluna significa e o modulo
+    de cada planilha (cameras ou links).
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".xlsx":
+        workbook = openpyxl.load_workbook(path, data_only=True, read_only=True)
+        try:
+            raw_rows = list(workbook.active.iter_rows(values_only=True))
+        finally:
+            workbook.close()
+        if not raw_rows:
+            raise ValueError("A planilha esta vazia.")
+        header_cells = [
+            str(cell).strip() if cell is not None else "" for cell in raw_rows[0]
+        ]
+        table_rows = [
+            [str(cell) if cell is not None else "" for cell in row] for row in raw_rows[1:]
+        ]
+        return header_cells, table_rows, []
+
+    if suffix == ".csv":
+        encodings = ["utf-8-sig", "cp1252", "latin-1"]
+        content: list[list[str]] = []
+        used_encoding = None
+        for encoding in encodings:
+            try:
+                with path.open("r", encoding=encoding, newline="") as file:
+                    content = list(csv.reader(file))
+                used_encoding = encoding
+                break
+            except UnicodeDecodeError:
+                continue
+        if not content:
+            raise ValueError("Nao foi possivel ler o CSV (encoding desconhecido).")
+
+        warnings = []
+        if used_encoding and used_encoding != "utf-8-sig":
+            warnings.append(f"CSV lido como {used_encoding}.")
+        header_cells = [cell.strip() for cell in content[0]]
+        table_rows = [[cell for cell in row] for row in content[1:]]
+        return header_cells, table_rows, warnings
+
+    raise ValueError(
+        "Formato nao suportado. Use .xlsx ou .csv (se tiver um .xls antigo, salve como .xlsx)."
+    )
+
+
 def read_xlsx(
     path: Path, sites: list[str] | None = None, roles: list[str] | None = None
 ) -> SheetResult:
-    workbook = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    try:
-        sheet = workbook.active
-        raw_rows = list(sheet.iter_rows(values_only=True))
-    finally:
-        workbook.close()
-
-    if not raw_rows:
-        raise ValueError("A planilha esta vazia.")
-
-    header_cells = [str(cell).strip() if cell is not None else "" for cell in raw_rows[0]]
-    table_rows = [
-        [str(cell) if cell is not None else "" for cell in row] for row in raw_rows[1:]
-    ]
-    return _rows_from_table(path.name, header_cells, table_rows, [], sites, roles)
+    header_cells, table_rows, file_warnings = read_raw_table(path)
+    return _rows_from_table(
+        path.name, header_cells, table_rows, file_warnings, sites, roles
+    )
 
 
 def read_csv(
     path: Path, sites: list[str] | None = None, roles: list[str] | None = None
 ) -> SheetResult:
-    encodings = ["utf-8-sig", "cp1252", "latin-1"]
-    content: list[list[str]] = []
-    used_encoding = None
-    for encoding in encodings:
-        try:
-            with path.open("r", encoding=encoding, newline="") as file:
-                content = list(csv.reader(file))
-            used_encoding = encoding
-            break
-        except UnicodeDecodeError:
-            continue
-    if not content:
-        raise ValueError("Nao foi possivel ler o CSV (encoding desconhecido).")
-
-    header_cells = [cell.strip() for cell in content[0]]
-    table_rows = [[cell for cell in row] for row in content[1:]]
-
-    file_warnings: list[str] = []
-    if used_encoding and used_encoding != "utf-8-sig":
-        file_warnings.append(f"CSV lido como {used_encoding}.")
+    header_cells, table_rows, file_warnings = read_raw_table(path)
     suspensas = [COLUMNS_BY_KEY[key].label for key in (SITE_KEY, ROLE_KEY) if key in header_cells]
     if suspensas:
         file_warnings.append(
@@ -441,29 +465,34 @@ def read_file(
     )
 
 
-def _write_list_sheet(workbook, sites: list[str], roles: list[str]) -> None:
-    """Aba de apoio com os sites (coluna A) e os papeis (coluna B).
+def write_list_sheet(workbook, columns: list[tuple[str, list[str]]]) -> None:
+    """Aba de apoio com uma coluna por lista (ex.: Sites e Papeis).
 
     Fica **visivel e com filtro** de proposito: a lista suspensa da celula serve para
     escolher rapido (digitando, ela pula ao item), mas com milhares de sites achar um
     especifico e mais facil filtrando/buscando aqui - o filtro do Excel tem busca.
     """
     sheet = workbook.create_sheet(LIST_SHEET_TITLE)
-    sheet.append(["Sites", "Papeis"])
-    for indice in range(max(len(sites), len(roles))):
+    sheet.append([titulo for titulo, _valores in columns])
+    altura = max((len(valores) for _titulo, valores in columns), default=0)
+    for indice in range(altura):
         sheet.append(
             [
-                sites[indice] if indice < len(sites) else None,
-                roles[indice] if indice < len(roles) else None,
+                valores[indice] if indice < len(valores) else None
+                for _titulo, valores in columns
             ]
         )
-    sheet.column_dimensions["A"].width = max((len(item) for item in sites), default=10) + 2
-    sheet.column_dimensions["B"].width = max((len(item) for item in roles), default=10) + 2
+    for posicao, (_titulo, valores) in enumerate(columns):
+        letra = get_column_letter(posicao + 1)
+        sheet.column_dimensions[letra].width = max(
+            (len(item) for item in valores), default=10
+        ) + 2
     sheet.freeze_panes = "A2"
-    sheet.auto_filter.ref = f"A1:B{max(len(sites), len(roles)) + 1}"
+    if columns:
+        sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{altura + 1}"
 
 
-def _add_dropdown(
+def add_dropdown(
     sheet,
     selected: list[str],
     key: str,
@@ -492,6 +521,30 @@ def _add_dropdown(
     validacao.add(f"{letra}2:{letra}{DROPDOWN_ROWS}")
 
 
+def new_data_sheet(
+    sheet_title: str, specs: list[ColumnSpec], sample: list[str]
+):
+    """Planilha de dados pronta: cabecalho destacado, linha de amostra e larguras."""
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = sheet_title
+    sheet.append([spec.label for spec in specs])
+    sheet.append(sample)
+
+    header_font = Font(bold=True)
+    header_fill = PatternFill("solid", fgColor="DDEBF7")
+    for cell in sheet[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+
+    for column_cells in sheet.columns:
+        width = max(
+            len(str(cell.value)) for cell in column_cells if cell.value is not None
+        ) + 2
+        sheet.column_dimensions[column_cells[0].column_letter].width = min(width, 60)
+    return workbook, sheet
+
+
 def write_example_template(
     path: Path,
     sites: list[str] | None = None,
@@ -505,11 +558,6 @@ def write_example_template(
     """
     selected = template_columns(columns)
     specs = [COLUMNS_BY_KEY[key] for key in selected]
-
-    workbook = openpyxl.Workbook()
-    sheet = workbook.active
-    sheet.title = DATA_SHEET_TITLE
-    sheet.append([spec.label for spec in specs])
 
     known_sites = sorted({site for site in (sites or []) if site})
     known_roles = sorted({role for role in (roles or []) if role})
@@ -526,23 +574,11 @@ def write_example_template(
             sample.append(papel_amostra)
         else:
             sample.append(spec.sample)
-    sheet.append(sample)
-
-    header_font = Font(bold=True)
-    header_fill = PatternFill("solid", fgColor="DDEBF7")
-    for cell in sheet[1]:
-        cell.font = header_font
-        cell.fill = header_fill
-
-    for column_cells in sheet.columns:
-        width = max(
-            len(str(cell.value)) for cell in column_cells if cell.value is not None
-        ) + 2
-        sheet.column_dimensions[column_cells[0].column_letter].width = min(width, 60)
+    workbook, sheet = new_data_sheet(DATA_SHEET_TITLE, specs, sample)
 
     if known_sites or known_roles:
-        _write_list_sheet(workbook, known_sites, known_roles)
-        _add_dropdown(
+        write_list_sheet(workbook, [("Sites", known_sites), ("Papeis", known_roles)])
+        add_dropdown(
             sheet,
             selected,
             SITE_KEY,
@@ -551,7 +587,7 @@ def write_example_template(
             "Site invalido",
             "Escolha um site que exista no NetBox (use a seta da celula).",
         )
-        _add_dropdown(
+        add_dropdown(
             sheet,
             selected,
             ROLE_KEY,

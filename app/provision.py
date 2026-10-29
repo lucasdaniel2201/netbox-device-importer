@@ -56,6 +56,7 @@ SCHEMA_ENDPOINTS: dict[str, str] = {
     "tenant": "/api/tenancy/tenants/",
     "interface": "/api/dcim/interfaces/",
     "ip_address": "/api/ipam/ip-addresses/",
+    "prefix": "/api/ipam/prefixes/",
     "tag": "/api/extras/tags/",
 }
 
@@ -70,6 +71,12 @@ CUSTOM_FIELDS_ENDPOINT = "/api/extras/custom-fields/"
 DEVICE_ENDPOINT = "/api/dcim/devices/"
 INTERFACE_ENDPOINT = "/api/dcim/interfaces/"
 IP_ADDRESS_ENDPOINT = "/api/ipam/ip-addresses/"
+PREFIX_ENDPOINT = "/api/ipam/prefixes/"
+
+# Papeis de IPAM (prefixo/VLAN). O nome do caminho mudou na 4.0: da para tentar os
+# dois e ficar com o que a instancia responder.
+PREFIX_ROLE_ENDPOINTS: tuple[str, ...] = ("/api/ipam/roles/", "/api/ipam/prefix-roles/")
+
 REFERENCE_WRITE_ENDPOINTS: dict[str, str] = {
     "manufacturer": "/api/dcim/manufacturers/",
     "device_type": "/api/dcim/device-types/",
@@ -80,6 +87,14 @@ REFERENCE_WRITE_ENDPOINTS: dict[str, str] = {
 # Tipo da interface criada para a camera (choice do NetBox: 1000BASE-T).
 DEFAULT_INTERFACE_NAME = "eth0"
 DEFAULT_INTERFACE_TYPE = "1000base-t"
+
+# Interface do link de internet, criada quando o device ainda nao tem uma com esse
+# nome. O tipo e so um padrao: o que importa para o IP e a interface existir.
+DEFAULT_LINK_INTERFACE_NAME = "wan1"
+DEFAULT_LINK_INTERFACE_TYPE = "1000base-t"
+
+# Status de prefixo que agrupa outros prefixos: nao deve ser rebaixado para "active".
+CONTAINER_STATUS = "container"
 
 # Campos do device comparados para decidir entre "ja existe" e "atualizar".
 COMPARE_FIELDS: tuple[str, ...] = (
@@ -302,6 +317,41 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
             record_error(key, exc)
             snapshot["objects"].setdefault(key, [])
 
+    # Nomes dos devices: a planilha de links aponta para um device existente, e sem
+    # esta lista o app so descobriria o erro linha a linha, na hora de gravar. `brief`
+    # traz apenas id/nome (5 mil devices cabem numa pagina de memoria).
+    try:
+        # `site` vem junto de proposito: nesta instancia o nome do device NAO e
+        # unico (ha varios "Mikrotik"), entao o site e o que desempata na planilha.
+        devices = client.fetch_all(DEVICE_ENDPOINT, params={"fields": "id,name,site"})
+        snapshot["objects"]["devices"] = [
+            {
+                "id": item.get("id"),
+                "label": str(item.get("name") or ""),
+                "site_id": (item.get("site") or {}).get("id"),
+            }
+            for item in devices
+            if item.get("name")
+        ]
+    except Exception as exc:
+        record_error("devices", exc)
+        snapshot["objects"]["devices"] = []
+
+    # Papeis de IPAM: o caminho mudou de nome na 4.0, entao tentamos os dois.
+    snapshot["objects"]["prefix_roles"] = []
+    ultimo_erro: Exception | None = None
+    for path in PREFIX_ROLE_ENDPOINTS:
+        try:
+            papeis = client.fetch_all(path)
+        except Exception as exc:
+            ultimo_erro = exc
+            continue
+        snapshot["objects"]["prefix_roles"] = [summarize_object(item) for item in papeis]
+        break
+    else:
+        if ultimo_erro is not None:
+            record_error("prefix_roles", ultimo_erro)
+
     for key, path in COUNT_ENDPOINTS.items():
         try:
             snapshot["counts"][key] = client.count(path)
@@ -353,6 +403,11 @@ def site_tenants(snapshot: dict[str, Any]) -> list[tuple[str, int]]:
         tenant = str(site.get("tenant") or "")
         counts[tenant] = counts.get(tenant, 0) + 1
     return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
+
+
+def device_names(snapshot: dict[str, Any]) -> list[str]:
+    """Nomes dos devices descobertos, em ordem alfabetica (lista suspensa do modelo)."""
+    return sorted({str(item.get("label")) for item in snapshot.get("objects", {}).get("devices", []) if item.get("label")})
 
 
 def site_names(snapshot: dict[str, Any], tenant: str | None = None) -> list[str]:
@@ -580,6 +635,144 @@ def upsert_ip_address(
 def set_primary_ip4(client: NetBoxClient, device_id: int, ip_id: int) -> None:
     """Marca o IP como primario do device (so aceito se estiver na interface dele)."""
     client.update(DEVICE_ENDPOINT, device_id, {"primary_ip4": ip_id})
+
+
+def device_by_name(
+    client: NetBoxClient, name: str, site_id: int | None = None
+) -> dict[str, Any] | None:
+    """Device existente pelo nome (e pelo site, quando informado), ou None.
+
+    O site nao e enfeite: nesta instancia o nome do device so e unico dentro do site,
+    entao `?name=` sozinho pode devolver varios - e o `get_or_none` recusaria.
+    """
+    filtros: dict[str, Any] = {"name": (name or "").strip()}
+    if site_id is not None:
+        filtros["site_id"] = site_id
+    return client.get_or_none(DEVICE_ENDPOINT, **filtros)
+
+
+def set_primary_ip4_if_empty(
+    client: NetBoxClient, device: dict[str, Any], ip_id: int
+) -> bool:
+    """Define o `primary_ip4` so quando o device ainda nao tem um.
+
+    Um roteador costuma ser gerenciado pelo IP da LAN: sobrescrever o primario com
+    o IP do link trocaria o endereco de gerencia dele em silencio. Quando ja existe
+    um primario, o IP do link fica gravado e vinculado a interface, sem virar primario.
+    """
+    if device.get("primary_ip4"):
+        return False
+    client.update(DEVICE_ENDPOINT, device["id"], {"primary_ip4": ip_id})
+    return True
+
+
+def upsert_named_interface(
+    client: NetBoxClient,
+    device_id: int,
+    name: str,
+    interface_type: str = DEFAULT_LINK_INTERFACE_TYPE,
+) -> tuple[str, int | None]:
+    """Garante a interface **pelo nome** no device (cria se nao existir).
+
+    Diferente de `upsert_interface`, que reaproveita a primeira interface do device:
+    num roteador a primeira interface pode ser a LAN, e o IP do link precisa ir para
+    a WAN certa.
+    """
+    alvo = (name or DEFAULT_LINK_INTERFACE_NAME).strip()
+    existentes = client.fetch_all(
+        INTERFACE_ENDPOINT, params={"device_id": device_id, "name": alvo}
+    )
+    for item in existentes:
+        if str(item.get("name") or "").casefold() == alvo.casefold():
+            return "exists", item.get("id")
+
+    criada = client.create(
+        INTERFACE_ENDPOINT,
+        {"device": device_id, "name": alvo, "type": interface_type, "enabled": True},
+    )
+    return "created", criada.get("id")
+
+
+def prefix_scope_field(snapshot: dict[str, Any]) -> str:
+    """Como o prefixo se liga ao site nesta instancia: `scope_type` ou `site`.
+
+    No NetBox 4.3 o campo `site` do prefixo virou o escopo generico
+    (`scope_type`/`scope_id`). O OPTIONS diz qual dos dois existe; sem OPTIONS
+    (token sem essa permissao) assumimos o formato da 4.3+, que e a instancia alvo.
+    """
+    campos = fields_for(snapshot, "prefix")
+    if "scope_type" in campos:
+        return "scope_type"
+    if "site" in campos:
+        return "site"
+    return "scope_type"
+
+
+def prefix_matches(existing: dict[str, Any], payload: dict[str, Any]) -> bool:
+    """O prefixo existente ja esta igual ao payload? (evita PATCH desnecessario)"""
+    if str(existing.get("prefix") or "") != str(payload.get("prefix") or ""):
+        return False
+    if "description" in payload:
+        if str(existing.get("description") or "") != str(payload["description"]):
+            return False
+    if "comments" in payload:
+        if str(existing.get("comments") or "") != str(payload["comments"]):
+            return False
+    if "status" in payload and str(_plain(existing.get("status"))) != str(payload["status"]):
+        return False
+    if "role" in payload:
+        atual = existing.get("role")
+        if not isinstance(atual, dict) or atual.get("id") != payload["role"]:
+            return False
+    if "scope_id" in payload:
+        if existing.get("scope_id") != payload["scope_id"]:
+            return False
+        if str(existing.get("scope_type") or "") != str(payload.get("scope_type") or ""):
+            return False
+    if "site" in payload:
+        atual = existing.get("site")
+        if not isinstance(atual, dict) or atual.get("id") != payload["site"]:
+            return False
+    if "custom_fields" in payload:
+        atuais = existing.get("custom_fields") or {}
+        for nome, valor in (payload["custom_fields"] or {}).items():
+            if atuais.get(nome) != valor:
+                return False
+    return True
+
+
+def upsert_prefix(
+    client: NetBoxClient, payload: dict[str, Any], changelog_message: str = ""
+) -> tuple[str, int | None, str]:
+    """Cria ou atualiza o prefixo pela chave `prefix` (idempotencia).
+
+    Retorna (status, id, request_id), com status em created | updated | exists.
+    """
+    alvo = str(payload.get("prefix") or "")
+    body = dict(payload)
+    if changelog_message:
+        body["changelog_message"] = changelog_message
+
+    existente = client.get_or_none(PREFIX_ENDPOINT, prefix=alvo)
+    # O filtro `prefix` responde de forma "contida" em algumas versoes: consultar
+    # 10.10.48.0/24 pode devolver o 10.0.0.0/8 que o contem. Sem esta conferencia, o
+    # app daria PATCH no prefixo errado - reescrevendo um /8 como /24.
+    if existente is not None and str(existente.get("prefix") or "") != alvo:
+        existente = None
+
+    if existente is None:
+        criado = client.create(PREFIX_ENDPOINT, body)
+        return "created", criado.get("id"), client.last_request_id
+
+    # Prefixo "container" contem outros: rebaixa-lo para "active" mudaria o sentido
+    # de um objeto que ja existe e nao foi criado por esta planilha.
+    if str(_plain(existente.get("status"))) == CONTAINER_STATUS:
+        body.pop("status", None)
+
+    if prefix_matches(existente, body):
+        return "exists", existente.get("id"), client.last_request_id
+    atualizado = client.update(PREFIX_ENDPOINT, existente["id"], body)
+    return "updated", atualizado.get("id", existente.get("id")), client.last_request_id
 
 
 def _same_mac(atual: Any, nova: str) -> bool:
