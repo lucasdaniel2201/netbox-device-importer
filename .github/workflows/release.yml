@@ -1,0 +1,98 @@
+name: Release
+
+# Gera o executavel e o instalador no Windows e publica a Release.
+#
+# Por que aqui e nao na maquina do desenvolvedor: o PyInstaller nao faz
+# cross-compilation - um .exe do Windows so nasce rodando o PyInstaller no
+# Windows (o app usa a DPAPI e o executavel embute o runtime do Python).
+# Rodar no runner oficial tambem deixa o binario reproduzivel: mesma receita
+# (requirements.txt + .spec + .iss) sempre que alguem refizer o processo.
+#
+# Disparo:
+#   - push de tag `v*`  -> gera os binarios e publica a Release daquela tag;
+#   - execucao manual   -> gera os binarios e deixa como artifact, sem Release.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    # Necessario para o GITHUB_TOKEN criar a Release.
+    permissions:
+      contents: write
+
+    env:
+      # Sem display no runner: o Qt precisa do offscreen para os testes de
+      # interface nao abortarem o processo.
+      QT_QPA_PLATFORM: offscreen
+
+    steps:
+      - name: Checkout do repositorio
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Rodar a suite de testes
+        run: python -m unittest discover -s tests
+
+      # A versao vive em tres arquivos e agora tambem na tag. Sem esta conferencia
+      # seria possivel publicar uma Release v1.2.0 com o .exe dizendo 1.1.0 - e a
+      # checagem de atualizacoes do app passaria a mentir.
+      - name: Conferir se a tag corresponde a versao do app
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          $versao = (python -c "from app.version import __version__; print(__version__)").Trim()
+          if ("v$versao" -ne $env:GITHUB_REF_NAME) {
+            throw "Tag $env:GITHUB_REF_NAME nao corresponde a versao do app (v$versao). Atualize app/version.py, instalador.iss e version_info.txt."
+          }
+
+      - name: Gerar o executavel
+        run: python -m PyInstaller --clean --noconfirm ImportadorCameras.spec
+
+      - name: Instalar o Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Gerar o instalador
+        run: '& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" instalador.iss'
+
+      - name: Conferir os binarios gerados
+        run: |
+          $exe = "dist\ImportadorCameras.exe"
+          $setup = Get-ChildItem dist -Filter "ImportadorCamerasSetup-*.exe" -ErrorAction SilentlyContinue
+          if (-not (Test-Path $exe)) { throw "Executavel nao gerado: $exe" }
+          if (-not $setup) { throw "Instalador nao gerado em dist" }
+          Get-ChildItem dist | Format-Table Name, Length
+
+      # Build manual (workflow_dispatch): guarda os binarios sem publicar Release.
+      - name: Guardar os binarios
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImportadorCameras
+          path: |
+            dist/ImportadorCameras.exe
+            dist/ImportadorCamerasSetup-*.exe
+          if-no-files-found: error
+
+      - name: Publicar a Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = (Get-ChildItem dist -Filter "ImportadorCamerasSetup-*.exe").FullName
+          gh release create $env:GITHUB_REF_NAME $setup "dist\ImportadorCameras.exe" `
+            --title "Importador de Cameras $env:GITHUB_REF_NAME" `
+            --generate-notes
