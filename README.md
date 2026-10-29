@@ -22,11 +22,13 @@ O app é pensado para usuário leigo: login por token, geração de planilha mod
 - [Para quem vai usar](#para-quem-vai-usar)
 - [Para quem vai mexer no código](#para-quem-vai-mexer-no-código)
 - [Como usar](#como-usar)
+- [Links IP (blocos e endereço do link)](#links-ip-blocos-e-endereço-do-link)
 - [Regras da importação](#regras-da-importação)
 - [Relatórios](#relatórios)
 - [Verificação de atualizações](#verificação-de-atualizações)
 - [Arquitetura](#arquitetura)
 - [Testes](#testes)
+- [Rodar no Linux (para testar)](#rodar-no-linux-para-testar)
 - [Build do executável](#build-do-executável)
 - [Instalador e portátil](#instalador-e-portátil)
 - [Ao lançar uma nova versão](#ao-lançar-uma-nova-versão)
@@ -91,6 +93,7 @@ Ao conectar, o app descobre o ambiente: sites, papéis (roles), tipos de device,
 
 - **Passo 1 · Baixar planilha modelo**: gera o `modelo_cameras_netbox.xlsx` com as listas de Site e Papel preenchidas a partir do NetBox.
 - **Passo 2 · Importar planilha**: abre o diálogo de importação com a planilha preenchida.
+- **Links IP**: gera o `modelo_links_netbox.xlsx` e abre a importação de links (blocos e endereço do link), que não passa pela importação de devices.
 
 ### A planilha modelo
 
@@ -114,6 +117,48 @@ Aceita `.xlsx` (com listas suspensas) ou `.csv` (sem listas; o app avisa para co
 4. Durante a execução há barra de progresso por device e botão de cancelar.
 5. Ao final, um resumo mostra criados, atualizados, sem mudança, erros e avisos, amostras dos erros e o caminho do relatório.
 
+## Links IP (blocos e endereço do link)
+
+A documentação do parque de câmeras não é a mesma coisa que o **link de internet**
+de cada site. O enlace tem três informações que não cabem na planilha de câmeras:
+o bloco público entregue pelo provedor (normalmente `/30` ou `/31`), o bloco da
+rede local e o endereço do roteador dentro do bloco público. Para isso existe uma
+parte própria do app, no rodapé da tela de ambiente.
+
+Cada linha da planilha de links vira até três objetos no NetBox:
+
+| Coluna na planilha | Vira no NetBox |
+| --- | --- |
+| Bloco público | `ipam.prefix` com escopo no site (ex.: `203.0.113.240/30`) |
+| Bloco LAN | `ipam.prefix` com escopo no site (ex.: `10.10.48.0/24`) |
+| IP do link | `ipam.ip-address` (`203.0.113.241/30`) vinculado à interface do device |
+| Device + Fabricante + Modelo + Papel do device | `dcim.device`, criado no site da linha **quando ainda não existir** |
+
+**Bloco e IP não são a mesma coisa.** O bloco é a *faixa* que o provedor entregou
+(`203.0.113.240/30` — quatro endereços); o IP do link é *o endereço do roteador*
+dentro dela (`203.0.113.241/30`). Num `/31` a faixa tem dois endereços: um é do
+provedor e o outro é o seu — por isso o prefixo documenta a faixa inteira e o IP
+documenta só o seu lado. O NetBox guarda os dois como objetos diferentes, e o app
+cria um de cada.
+
+Colunas do `modelo_links_netbox.xlsx`:
+
+- **Site** (obrigatório): lista suspensa com os sites do NetBox; os prefixos ficam com esse escopo.
+- **Device** (obrigatório): nome do roteador. Se já existir no site da linha, o link usa esse device; se não existir, o app **cria** o device no site da linha (é o que permite subir o link numa planilha só). A lista suspensa traz os devices existentes, mas você pode digitar um nome novo. Neste NetBox o nome do device é único **dentro do site**, não no servidor inteiro (há vários "Mikrotik"): o site da linha desempata.
+- **Fabricante / Modelo**: só usados quando o device precisa ser criado (o device-type é resolvido por essa dupla e criado se faltar). Numa planilha herdada, Modelo costuma ser a coluna "Equipamento".
+- **Papel do device**: papel do device criado. Em branco vale `Roteador`.
+- **Bloco público** (obrigatório): CIDR do bloco, `203.0.113.240/30`. Se a célula trouxer o **endereço do roteador** com a máscara — é o que a planilha real faz (`198.51.100.45/31`, `203.0.113.123/32`) —, o app grava o bloco como rede (`198.51.100.44/31`) e usa o endereço da célula como IP do link. Nada é descartado e nada é deduzido nesse caso.
+- **Interface**: onde o IP do link é vinculado. Em branco vale `wan1`; se o device não tiver essa interface, ela é criada.
+- **IP do link**: endereço do roteador dentro do bloco público. Preenchido, manda sobre a coluna do bloco. Em branco e sem endereço no bloco, o app **deduz** (primeiro utilizável em `/30`, o segundo endereço em `/31`) e mostra o aviso no plano.
+- **Bloco LAN**: CIDR da rede local. Em branco, nenhum prefixo de LAN é criado.
+- **Papel do prefixo**: papel (role) de IPAM, lista suspensa. Em branco, os prefixos ficam sem papel.
+- **Adicionar ao Zabbix**: `0` ou `1`. O campo `add_to_zabbix` é **obrigatório** nesta instância; em branco, o app usa o valor observado num IP existente.
+- **Descrição**: vai para os dois prefixos (o da LAN ganha o sufixo `(LAN)`) e para o IP.
+- **Fornecedor / chamado**: vai para os `comments` do prefixo público.
+
+O diálogo de links mostra o plano antes de enviar — bloco público, IP e situação
+linha a linha — e, ao final, o resumo com o caminho do relatório.
+
 ## Regras da importação
 
 **Idempotência.** Para cada objeto o app faz `GET` e decide: não existe → `POST` (criar); existe e está igual → nada (conta como "exists"); existe e difere → `PATCH` (atualizar). Vale para device, interface, IP e referências. Rodar a mesma planilha de novo não duplica nada.
@@ -124,9 +169,17 @@ Aceita `.xlsx` (com listas suspensas) ou `.csv` (sem listas; o app avisa para co
 
 **Status.** Todo device é gravado com status `active`; o status não vem da planilha.
 
+**Links IP.** Mesma idempotência: o prefixo é procurado por `prefix` e o IP por `address`. Três decisões específicas:
+
+- **O escopo do prefixo segue a instância.** No NetBox 4.3 o campo `site` do prefixo virou o escopo genérico (`scope_type`/`scope_id`). O app lê o `OPTIONS` do endpoint e manda o formato que aquela versão aceita.
+- **`primary_ip4` só é definido quando o device ainda não tem um.** O primário de um roteador costuma ser o IP de gerência (LAN); trocá-lo pelo IP do link tiraria o endereço de gerência em silêncio. Quando já existe, o IP do link é gravado e vinculado à interface, e a linha diz "primary_ip4 mantido".
+- **Falha de prefixo é aviso, não erro.** Sem permissão de escrita em `ipam.prefix`, o IP do link ainda é criado; o que faltou aparece nos avisos da linha e no relatório. Device inexistente é erro da linha e não impede as outras.
+- **Device: acha ou cria.** Se o nome existir no site da linha, o device é reaproveitado e nenhum PATCH é feito nele. Se não existir, o app cria fabricante e device-type que faltarem e depois o device (nome, site, papel, modelo). O plano mostra cada `vai criar: …` antes de enviar, e o resumo traz quantos devices foram criados.
+- **Bloco LAN repetido é aviso, não erro.** O mesmo `/24` pode atender dois links do mesmo site (dois provedores) — na planilha real isso acontece. Bloco público e IP do link repetidos continuam sendo erro nas duas linhas.
+
 ## Relatórios
 
-Cada importação grava três arquivos em `reports/` (`app/reports.py`):
+Cada importação grava três arquivos em `reports/` (`app/reports.py`). A de câmeras usa o prefixo `netbox-import-` e a de links, `netbox-links-`:
 
 | Arquivo | Conteúdo |
 | --- | --- |
@@ -183,9 +236,25 @@ GitHub Releases API
 python -m unittest discover -s tests
 ```
 
-Usam apenas a stdlib (`unittest`) e rodam **sem rede**. Cobrem a leitura e validação da planilha, o plano de importação, o cliente HTTP, o provisionamento, a sessão, a checagem de atualizações, o download do instalador, credenciais, caminhos e partes da interface (toast, spinner, janela). Hoje são 345 testes. Rode antes de alterar a importação, a planilha ou a checagem de atualizações.
+Usam apenas a stdlib (`unittest`) e rodam **sem rede**. Cobrem a leitura e validação da planilha, o plano de importação, o cliente HTTP, o provisionamento, a sessão, a checagem de atualizações, o download do instalador, credenciais, caminhos e partes da interface (toast, spinner, janela). Hoje são 429 testes. Rode antes de alterar a importação, a planilha, os links ou a checagem de atualizações.
 
-O CI roda essa suíte a cada push, em **Windows** (é obrigatório: o app usa a DPAPI do Windows) nas versões 3.12 e 3.14 do Python, e o Ruff separadamente em Linux. O estado está no badge no topo.
+O CI roda essa suíte a cada push, em **Windows** (é obrigatório: a distribuição usa a DPAPI do Windows) nas versões 3.12 e 3.14 do Python, e o Ruff separadamente em Linux. A suíte inteira também passa no Linux, onde o app roda a partir do código-fonte. O estado está no badge no topo.
+
+## Rodar no Linux (para testar)
+
+A distribuição continua sendo o executável do Windows. No Linux o app roda a
+partir do código-fonte, para testar planilha e plano sem gerar `.exe`:
+
+1. `tools/rodar_linux.sh` (na primeira execução ele cria o `.venv` e instala `requirements.txt`).
+2. Cole o token na tela de login e clique em **Entrar**.
+3. Use **Links IP → Baixar modelo de links** e depois **Importar links**.
+
+Para rodar só os testes: `tools/rodar_linux.sh --testes`.
+
+Duas diferenças em relação ao Windows, ambas visíveis na tela:
+
+- **Token guardado:** sem o DPAPI, o app tenta o chaveiro do sistema (`pip install keyring`) e, se não houver, grava um arquivo com permissão `0600` — a tela diz qual das duas proteções está em uso. Sem chaveiro, o token fica sem cifra, protegido só pela permissão do arquivo.
+- **Relatórios:** vão para `reports/` na raiz do projeto (o `.gitignore` já exclui essa pasta).
 
 ## Build do executável
 
@@ -249,7 +318,8 @@ Resolvido por `app/paths.py`.
 
 - **Pronto:** login por token cifrado, descoberta do ambiente, planilha modelo com listas suspensas, plano de importação com prévia, importação idempotente (device, interface, IP e `primary_ip4`), relatórios em log/JSON/CSV, instalador Inno Setup e portátil, e a verificação de atualizações — que avisa, baixa o instalador e o abre.
 - **Fora do escopo, por decisão de projeto:** o app **não** instala sozinho, sem ninguém na frente, e não substitui o próprio `.exe` em execução. Isso exigiria um processo auxiliar, porque o Windows trava o arquivo em uso.
-- **Plataforma:** Windows 10/11 x64. Não roda em Linux ou macOS: usa a DPAPI do Windows para cifrar o token da API.
+- **Plataforma:** Windows 10/11 x64 na distribuição. Em Linux o app roda do código-fonte para teste (`tools/rodar_linux.sh`); no Linux o token é protegido pelo chaveiro do sistema ou por permissão de arquivo `0600`, nunca pelo DPAPI.
+- **Device criado pelo link** recebe apenas nome, site, papel, device-type e os custom fields do deployment: firmware, MAC e NVR não vêm da planilha de links (esses campos são da importação de câmeras). O que falta aparece no relatório.
 
 ## Estrutura do projeto
 
@@ -269,6 +339,7 @@ Resolvido por `app/paths.py`.
 | `app/assets/` | Identidade visual: logo `lk_white.png`, ícone `app_icon.png/.ico` e fonte Inter (`assets/fonts/`). |
 | `tests/` | Testes automatizados (`unittest`), rodam sem rede. |
 | `tools/screenshots.py` | Utilitário de desenvolvimento que gera as telas deste README sem abrir janela. |
+| `tools/rodar_linux.sh` | Roda o app (ou a suíte, com `--testes`) no Linux a partir do código-fonte. |
 | `docs/screenshots/` | As imagens usadas neste README. |
 | `reports/` | Relatórios gerados a cada importação (não versionado). |
 
@@ -282,6 +353,9 @@ Módulos de `app/`:
 | `app/netbox_client.py` | Cliente REST: paginação, rate limit, esquema de token `Token`/`Bearer` e mensagens de erro legíveis. |
 | `app/provision.py` | Descoberta do ambiente (snapshot), criação de referências e upserts de device, interface, IP e `primary_ip4`. |
 | `app/import_plan.py` | Plano de importação: planilha validada → payload por device; resolve referências e custom fields. Não fala com a rede (testável offline). |
+| `app/link_sheet.py` | Leitura e validação da planilha de links IP (CIDR, IP dentro do bloco, duplicidades) e geração do modelo com listas suspensas. |
+| `app/link_plan.py` | Plano de links: planilha validada → prefixos e IP do link, com o escopo no formato da instância. Não fala com a rede. |
+| `app/link_dialog.py` | Diálogo de importação de links: plano, progresso e resultado. |
 | `app/spreadsheet.py` | Leitura e validação de `.xlsx`/`.csv` e geração do modelo com listas suspensas de Site e Papel. |
 | `app/import_dialog.py` | Diálogo de importação: plano, provisionamento de referências, progresso e resultado. |
 | `app/reports.py` | Grava log, JSON e CSV em `reports/`. |

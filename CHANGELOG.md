@@ -4,6 +4,25 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [1.1.0] - 2026-10-29
+
+### Adicionado
+
+- **Módulo de links IP**: uma parte própria do app para documentar o enlace de internet de cada site numa planilha só. Cada linha vira o prefixo do bloco público (escopo no site), o prefixo do bloco LAN, o `ipam.ip-address` do roteador na interface WAN e, **quando o device ainda não existir no site, o próprio device** — criando fabricante e device-type que faltarem.
+- Planilha modelo de links (`modelo_links_netbox.xlsx`), com as colunas Site, Device, Bloco público, Interface, IP do link, Bloco LAN, Papel do prefixo, Adicionar ao Zabbix, Descrição e Fornecedor/chamado, e listas suspensas de Site e Papel alimentadas pelo NetBox.
+- Validação de CIDR antes do envio: o bloco é normalizado para a rede (`...241/30` vira `...240/30`), o IP do link tem de pertencer ao bloco, rede/broadcast de /30 ou maior são recusados, e bloco ou IP repetido em duas linhas é erro nas duas.
+- IP do link em branco é deduzido do bloco (primeiro utilizável em /30, o segundo endereço em /31), sempre com aviso no plano: nada é inventado em silêncio.
+- Escrita idempotente do prefixo (`GET` por `prefix` → `POST`/`PATCH`), com o vínculo do site no formato da instância: `scope_type`/`scope_id` na 4.3+, `site` nas anteriores, decidido pelo `OPTIONS` do endpoint.
+- Interface do link procurada **pelo nome** (`wan1` por padrão) e criada se faltar; `primary_ip4` só é definido quando o device ainda não tem um, para não trocar em silêncio o IP de gerência do roteador.
+- Relatórios próprios da importação de links (`netbox-links-<data-hora>.log/.json/.csv`), com o `X-Request-ID` de cada escrita.
+- Versão executável em Linux a partir do código-fonte (`tools/rodar_linux.sh`), para testar planilhas sem gerar o `.exe`: cria o `.venv`, instala as dependências e abre o app; `--testes` roda a suíte.
+- Cofre do token com backend por plataforma: DPAPI no Windows, chaveiro do sistema (`keyring`) quando existir e, na falta dele, arquivo com permissão `0600`. A tela mostra qual proteção está em uso.
+
+### Alterado
+
+- Os testes de janela e de caminhos passam a rodar também no Linux (a suíte inteira roda lá; 429 testes).
+- A pasta de dados do usuário segue o XDG no Linux (`$XDG_DATA_HOME` ou `~/.local/share/ImportadorNetBox`).
+
 ## [1.0.1] - 2026-09-28
 
 ### Alterado
@@ -37,5 +56,6 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - Relatórios e log de erros passam para `%LOCALAPPDATA%\ImportadorNetBox` quando a pasta ao lado do executável não é gravável.
 
+[1.1.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lucasdaniel2201/netbox-device-importer/releases/tag/v1.0.0
