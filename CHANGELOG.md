@@ -4,7 +4,7 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
-## [Não publicado]
+## [1.2.0] - 2026-11-03
 
 ### Alterado
 
@@ -83,6 +83,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - Relatórios e log de erros passam para `%LOCALAPPDATA%\ImportadorNetBox` quando a pasta ao lado do executável não é gravável.
 
+[1.2.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/lucasdaniel2201/netbox-device-importer/releases/tag/v1.0.0
