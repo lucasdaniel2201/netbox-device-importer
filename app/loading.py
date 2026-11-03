@@ -2,7 +2,7 @@
 
 Sem asset externo (nada de GIF/SVG empacotado) e sem glifo de fonte: e a licao que
 ja pagamos no projeto antigo - simbolo fora da fonte empacotada renderiza deformado.
-Desenhar tambem deixa a animacao nitida em qualquer escala.
+Desenhar tambem deixa a animacao nitida em qualquer escala e acompanhar o tema.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ GRAUS_POR_TICK = 4.2  # uma volta a cada ~1,4 s
 
 
 class Spinner(QWidget):
-    """Anel girando: trilha clara + arco solido com pontas arredondadas."""
+    """Anel girando: trilha discreta + arco solido com pontas arredondadas."""
 
     def __init__(self, parent=None, diameter: int = 68, stroke: int = 5) -> None:
         super().__init__(parent)
@@ -52,20 +52,21 @@ class Spinner(QWidget):
         self.update()
 
     def paintEvent(self, event) -> None:  # noqa: N802
+        p = theme.palette()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         margem = self._stroke / 2 + 1
         caixa = QRectF(margem, margem, self.width() - 2 * margem, self.height() - 2 * margem)
 
-        trilha = QPen(QColor(255, 255, 255, 46), self._stroke)
+        trilha = QPen(QColor(p.border), self._stroke)
         trilha.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(trilha)
         painter.drawEllipse(caixa)
 
         # O arco abre e fecha de leve: parece "respirar" em vez de um pedaco rigido.
         abertura = 220 + 60 * math.sin(math.radians(self._angle * 2))
-        arco = QPen(QColor(theme.TURQUOISE), self._stroke)
+        arco = QPen(QColor(p.accent), self._stroke)
         arco.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(arco)
         painter.drawArc(caixa, int(-self._angle * 16), int(-abertura * 16))

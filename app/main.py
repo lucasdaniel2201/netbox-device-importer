@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app import theme  # noqa: E402
+from app import preferences, theme  # noqa: E402
 from app.main_window import MainWindow  # noqa: E402
 from app.paths import resource_path, writable_base  # noqa: E402
 
@@ -84,14 +84,15 @@ sys.excepthook = _excepthook
 def main() -> int:
     app = QApplication(sys.argv)
     # Nao usar setApplicationDisplayName: o Qt anexa esse nome ao titulo de cada
-    # janela, gerando titulos duplicados (ex.: "... - NetBox - Importador de Cameras").
-    app.setApplicationName("Importador de Cameras NetBox")
+    # janela, gerando titulos duplicados.
+    app.setApplicationName("Importador NetBox")
     app.setStyle("Fusion")
 
     family = load_brand_fonts()
     app.setFont(QFont(family, 10))
-    app.setPalette(theme.build_dark_palette())
-    app.setStyleSheet(theme.style_sheet(family))
+    # Tema salvo pelo usuario (padrao: escuro). `apply` cuida de paleta, QSS e dos
+    # widgets que desenham por conta propria.
+    theme.apply(app, family, preferences.theme_mode())
 
     icon = app_icon()
     if not icon.isNull():

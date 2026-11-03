@@ -319,6 +319,38 @@ class TestDiscover(unittest.TestCase):
         self.assertEqual(snapshot["counts"]["devices"], 5442)
         self.assertEqual(snapshot["counts"]["ip_addresses"], 9215)
 
+    def test_sem_inventario_de_devices_fica_para_depois(self):
+        """O login de cameras nao paga pelos milhares de devices do fluxo de links."""
+        snapshot = provision.discover(self.build_client(), with_devices=False)
+        self.assertEqual(snapshot["objects"]["devices"], [])
+        self.assertFalse(snapshot["inventory_ready"])
+
+    def test_inventario_sob_demanda_preenche_devices_e_site(self):
+        cliente = self.build_client(
+            data={
+                "/api/dcim/devices/": [
+                    {"id": 7, "name": "RTR-MATRIZ", "site": {"id": 7507, "name": "AME VILANOVA"}}
+                ]
+            }
+        )
+        snapshot = provision.discover(cliente, with_devices=False)
+        provision.fetch_device_inventory(cliente, snapshot)
+        self.assertTrue(snapshot["inventory_ready"])
+        self.assertEqual(
+            snapshot["objects"]["devices"],
+            [{"id": 7, "label": "RTR-MATRIZ", "site_id": 7507}],
+        )
+        self.assertEqual(snapshot["counts"]["devices"], 1)
+
+    def test_falha_no_inventario_nao_quebra_o_snapshot(self):
+        cliente = self.build_client(fail={"/api/dcim/devices/"})
+        snapshot = provision.discover(cliente, with_devices=False)
+        provision.fetch_device_inventory(cliente, snapshot)
+        self.assertTrue(snapshot["inventory_ready"])
+        self.assertEqual(snapshot["objects"]["devices"], [])
+        self.assertTrue(any("devices:" in erro for erro in snapshot["errors"]))
+        self.assertTrue(snapshot["inventory_error"])
+
     def test_custom_fields_resolvem_o_object_type(self):
         snapshot = provision.discover(self.build_client())
         por_nome = {f["name"]: f for f in snapshot["custom_fields"]}
@@ -389,7 +421,10 @@ class TestDiscover(unittest.TestCase):
         espiao = Espiao(data=base._data, counts=base._counts, options=base._options)
         provision.discover(espiao)
         parametros = dict(espiao.chamadas)
-        self.assertEqual(parametros.get("/api/dcim/device-types/"), {"brief": 1})
+        self.assertEqual(
+            parametros.get("/api/dcim/device-types/"),
+            {"fields": "id,model,manufacturer,slug"},
+        )
 
 
 class TestEstadoDaConexao(unittest.TestCase):

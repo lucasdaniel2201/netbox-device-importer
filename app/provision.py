@@ -35,6 +35,25 @@ REFERENCE_ENDPOINTS: dict[str, str] = {
     "tenants": "/api/tenancy/tenants/",
 }
 
+# Campos minimos de cada conjunto de referencia.
+#
+# Sem isso o NetBox serializa o objeto inteiro (e, num device, o site inteiro):
+# numa instancia com 7 mil sites, a descoberta levava 28 s so para montar a tela.
+# `fields` corta o payload sem mudar o que o app usa. A lista e por endpoint porque
+# `summarize_object` precisa de campos diferentes (device_type usa manufacturer).
+REFERENCE_FIELDS: dict[str, str] = {
+    "sites": "id,name",
+    "locations": "id,name,site",
+    "regions": "id,name",
+    "site_groups": "id,name",
+    "racks": "id,name,site",
+    "device_roles": "id,name",
+    "manufacturers": "id,name",
+    "device_types": "id,model,manufacturer,slug",
+    "tags": "id,name,slug",
+    "tenants": "id,name",
+}
+
 # Objetos potencialmente grandes: so a contagem interessa.
 COUNT_ENDPOINTS: dict[str, str] = {
     "devices": "/api/dcim/devices/",
@@ -262,12 +281,22 @@ def needs_tls_retry(snapshot: dict[str, Any], verify_tls: bool) -> bool:
     return bool(verify_tls) and not has_environment(snapshot) and looks_like_tls_failure(snapshot)
 
 
-def discover(client: NetBoxClient) -> dict[str, Any]:
+def discover(
+    client: NetBoxClient,
+    progress=None,
+    with_devices: bool = True,
+) -> dict[str, Any]:
     """Fotografia do ambiente: versao, objetos de referencia, campos e contagens.
 
     Cada secao e tolerante a falha: um endpoint indisponivel vira uma entrada em
     `errors` em vez de derrubar a descoberta inteira.
+
+    `with_devices=False` adia o inventario de devices (milhares de registros, cada
+    um com o site aninhado). Ele nao e necessario para documentar cameras e e
+    carregado sob demanda por `fetch_device_inventory`, quando o fluxo de links
+    realmente precisa dele.
     """
+    reportar = progress or (lambda _texto: None)
     snapshot: dict[str, Any] = {
         "base_url": client.base_url,
         "token_scheme": getattr(client, "token_scheme", ""),
@@ -283,6 +312,7 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
         "schema": {},
         "capabilities": {},
         "errors": [],
+        "inventory_ready": False,
     }
 
     def record_error(section: str, exc: Exception) -> None:
@@ -307,35 +337,25 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
     snapshot["current_user"] = current_user(client)
 
     snapshot["api_version"] = getattr(client, "api_version", "")
+    reportar("Lendo sites, papéis e fabricantes…")
 
     for key, path in REFERENCE_ENDPOINTS.items():
         try:
-            params = {"brief": 1} if key == "device_types" else None
-            objects = client.fetch_all(path, params=params)
+            objects = client.fetch_all(path, params={"fields": REFERENCE_FIELDS[key]})
             snapshot["objects"][key] = [summarize_object(item) for item in objects]
         except Exception as exc:
             record_error(key, exc)
             snapshot["objects"].setdefault(key, [])
 
-    # Nomes dos devices: a planilha de links aponta para um device existente, e sem
-    # esta lista o app so descobriria o erro linha a linha, na hora de gravar. `brief`
-    # traz apenas id/nome (5 mil devices cabem numa pagina de memoria).
-    try:
-        # `site` vem junto de proposito: nesta instancia o nome do device NAO e
-        # unico (ha varios "Mikrotik"), entao o site e o que desempata na planilha.
-        devices = client.fetch_all(DEVICE_ENDPOINT, params={"fields": "id,name,site"})
-        snapshot["objects"]["devices"] = [
-            {
-                "id": item.get("id"),
-                "label": str(item.get("name") or ""),
-                "site_id": (item.get("site") or {}).get("id"),
-            }
-            for item in devices
-            if item.get("name")
-        ]
-    except Exception as exc:
-        record_error("devices", exc)
-        snapshot["objects"]["devices"] = []
+    snapshot["objects"]["devices"] = []
+    if with_devices:
+        reportar("Lendo inventário de devices…")
+        try:
+            snapshot["objects"]["devices"] = device_summaries(client)
+            snapshot["inventory_ready"] = True
+        except Exception as exc:
+            record_error("devices", exc)
+            snapshot["inventory_ready"] = True
 
     # Papeis de IPAM: o caminho mudou de nome na 4.0, entao tentamos os dois.
     snapshot["objects"]["prefix_roles"] = []
@@ -352,12 +372,14 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
         if ultimo_erro is not None:
             record_error("prefix_roles", ultimo_erro)
 
+    reportar("Contando devices, IPs e prefixos…")
     for key, path in COUNT_ENDPOINTS.items():
         try:
             snapshot["counts"][key] = client.count(path)
         except Exception as exc:
             record_error(key, exc)
 
+    reportar("Lendo campos personalizados…")
     try:
         content_types = _content_type_map(client)
         snapshot["content_types"] = content_types
@@ -373,6 +395,7 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
     # Exemplo de custom field por tipo de objeto (pre-preenche os obrigatorios).
     snapshot["custom_fields_sample"] = sample_custom_fields(client)
 
+    reportar("Lendo permissões do token…")
     for key, path in SCHEMA_ENDPOINTS.items():
         try:
             snapshot["schema"][key] = client.options(path)
@@ -383,6 +406,48 @@ def discover(client: NetBoxClient) -> dict[str, Any]:
         key: endpoint_actions(snapshot, key) for key in snapshot["schema"]
     }
 
+    return snapshot
+
+
+def device_summaries(client: NetBoxClient) -> list[dict[str, Any]]:
+    """Inventário de devices (id, nome e site).
+
+    `site` vem junto de proposito: nesta instancia o nome do device NAO e unico
+    (ha varios "Mikrotik"), entao o site e o que desempata na planilha de links.
+    """
+    devices = client.fetch_all(DEVICE_ENDPOINT, params={"fields": "id,name,site"})
+    return [
+        {
+            "id": item.get("id"),
+            "label": str(item.get("name") or ""),
+            "site_id": (item.get("site") or {}).get("id"),
+        }
+        for item in devices
+        if item.get("name")
+    ]
+
+
+def fetch_device_inventory(
+    client: NetBoxClient,
+    snapshot: dict[str, Any],
+    progress=None,
+) -> dict[str, Any]:
+    """Carrega o inventario de devices sob demanda (fluxo de links).
+
+    Fica fora da descoberta inicial porque custa varios segundos numa instancia
+    grande e nao e necessario para importar cameras.
+    """
+    reportar = progress or (lambda _texto: None)
+    reportar("Lendo inventário de devices…")
+    try:
+        snapshot["objects"]["devices"] = device_summaries(client)
+        snapshot["counts"]["devices"] = len(snapshot["objects"]["devices"])
+        snapshot.pop("inventory_error", None)
+    except Exception as exc:
+        snapshot.setdefault("errors", []).append(f"devices: {exc}")
+        snapshot["objects"].setdefault("devices", [])
+        snapshot["inventory_error"] = str(exc)
+    snapshot["inventory_ready"] = True
     return snapshot
 
 

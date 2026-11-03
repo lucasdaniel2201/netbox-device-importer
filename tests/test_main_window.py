@@ -133,7 +133,7 @@ class TestAbertura(MainWindowTestCase):
 
         self.assertEqual(window._stack.currentIndex(), LOGIN_PAGE)
         self.assertFalse(window.spinner.is_running())
-        self.assertIn("nao funcionou", window.saved_note.text())
+        self.assertIn("não funcionou", window.saved_note.text())
         self.assertIn("403", window.login_error_label.text())
         # O token continua guardado: so sai se o usuario pedir.
         self.assertEqual(credentials.load_token(), "token-velho")
@@ -151,6 +151,37 @@ class TestAbertura(MainWindowTestCase):
         self.assertEqual(window.loading_hint.text(), "")
         window._show_slow_hint()
         self.assertIn("rede", window.loading_hint.text())
+
+    def test_etapa_da_descoberta_aparece_na_tela_de_carregamento(self):
+        window = self.abrir()
+        window._go_loading()
+        window._on_discovery_progress("Lendo sites, papéis e fabricantes…")
+        self.assertIn("sites", window._loading_page.caption.text())
+
+    def test_inventario_sob_demanda_retoma_a_acao_pendente(self):
+        window = self.abrir()
+        window._connected = True
+        window._snapshot = {"inventory_ready": False, "objects": {}, "counts": {}}
+        chamadas = []
+
+        window._ensure_inventory(lambda: chamadas.append("ok"))
+        self.assertEqual(chamadas, [])
+        self.assertTrue(window._inventory_loading)
+
+        window._on_inventory_ready(
+            {"inventory_ready": True, "objects": {}, "counts": {}}
+        )
+        self.assertEqual(chamadas, ["ok"])
+        self.assertFalse(window._inventory_loading)
+
+    def test_acao_de_link_nao_espera_quando_o_inventario_ja_esta_pronto(self):
+        window = self.abrir()
+        window._connected = True
+        window._snapshot = {"inventory_ready": True, "objects": {}, "counts": {}}
+        chamadas = []
+        window._ensure_inventory(lambda: chamadas.append("ok"))
+        self.assertEqual(chamadas, ["ok"])
+        self.assertFalse(window._inventory_loading)
 
 
 if __name__ == "__main__":

@@ -15,13 +15,14 @@ que coloca o mesmo parque de câmeras para **monitorar** no Zabbix. Um registra 
 que existe no NetBox; o outro garante que o que existe seja monitorado. A
 planilha de entrada pode ser a mesma nos dois.
 
-O app é pensado para usuário leigo: login por token, geração de planilha modelo com listas suspensas do próprio NetBox, prévia do que será criado antes de enviar qualquer coisa e relatórios da execução.
+O app é pensado para usuário leigo: login por token, geração de planilha modelo com listas suspensas do próprio NetBox, prévia do que será criado antes de enviar qualquer coisa e relatórios da execução — numa interface em tema escuro ou claro, com navegação por páginas.
 
 **Sumário**
 
 - [Para quem vai usar](#para-quem-vai-usar)
 - [Para quem vai mexer no código](#para-quem-vai-mexer-no-código)
 - [Como usar](#como-usar)
+- [Interface](#interface)
 - [Links IP (blocos e endereço do link)](#links-ip-blocos-e-endereço-do-link)
 - [Regras da importação](#regras-da-importação)
 - [Relatórios](#relatórios)
@@ -73,11 +74,11 @@ Observação sobre certificado: quando o NetBox é acessado por IP interno com c
 
 ## Como usar
 
-O app tem três telas: **login por token**, **carregando** (conexão e descoberta do ambiente) e **ambiente NetBox**.
+O app abre no **login por token**. Com token guardado, ele pula o login, conecta sozinho e abre a **visão geral** do ambiente.
 
-| Login por token | Conectando e descobrindo | Ambiente NetBox |
+| Login por token | Conectando e descobrindo | Visão geral |
 | --- | --- | --- |
-| ![Tela de login, com o campo de token](docs/screenshots/login.png) | ![Tela de carregamento com spinner](docs/screenshots/carregando.png) | ![Tela do ambiente descoberto](docs/screenshots/ambiente.png) |
+| ![Tela de login, com o campo de token](docs/screenshots/login.png) | ![Tela de carregamento com spinner](docs/screenshots/carregando.png) | ![Painel com os números do ambiente e as próximas ações](docs/screenshots/painel.png) |
 
 ### Login
 
@@ -87,13 +88,39 @@ O app tem três telas: **login por token**, **carregando** (conexão e descobert
 - As permissões de API são as do dono do token; o app mostra quem é esse usuário no cabeçalho.
 - Onde achar o token: no NetBox, clique no seu nome (canto superior direito) → Profile → API Tokens → Create.
 
+### Interface
+
+Depois de conectar, a janela tem **barra lateral**, **cabeçalho** e cinco páginas. A navegação não recarrega nada: cada página mantém seu estado (filtro, tabela, árvore expandida).
+
+| Importação | Links IP | Configurações |
+| --- | --- | --- |
+| ![Página de importação de câmeras](docs/screenshots/importacao.png) | ![Página de links IP](docs/screenshots/links.png) | ![Configurações com o ambiente técnico](docs/screenshots/configuracoes.png) |
+
+- **Visão geral**: tamanho do ambiente (sites, papéis, tipos de device, devices, IPs e prefixos), o próximo passo recomendado e as últimas execuções gravadas em disco.
+- **Importação**: ponto de partida da importação de câmeras e switches — baixar o modelo e abrir o diálogo de importação.
+- **Links IP**: o mesmo para o enlace de internet de cada site.
+- **Histórico**: cada execução registrada em `reports/`, com tipo, contagens e situação. Duplo clique abre o JSON.
+- **Configurações**: conexão, token (com a proteção em uso), aparência e o ambiente técnico (permissões do token, contagens, objetos e custom fields), com a opção de salvar o schema.
+
+O **cabeçalho** mostra o estado da conexão, o título da página atual e as ações globais: atualizar o ambiente, alternar o tema e ver as iniciais do dono do token. O estado fica verde quando conectado e âmbar quando o certificado TLS foi aceito sem verificação.
+
+**Tema claro e escuro**: a alternância está no ícone do cabeçalho e em Configurações → Aparência. A escolha é lembrada em `preferences.json` e vale para todas as telas.
+
+![Painel no tema claro](docs/screenshots/painel-claro.png)
+
 ### Ambiente NetBox
 
-Ao conectar, o app descobre o ambiente: sites, papéis (roles), tipos de device, fabricantes, contagens gerais, custom fields e o que o token pode fazer em cada endpoint. A tela resume o que existe ("Encontrei N sites, N papéis e N tipos de device") e tem um painel "Detalhes técnicos (avançado)" com a árvore completa e a opção de salvar o schema em JSON. No cabeçalho ficam "Atualizar" (relê o ambiente) e "Sair" (encerra a sessão).
+Ao conectar, o app descobre o ambiente: sites, papéis (roles), tipos de device, fabricantes, contagens gerais, custom fields e o que o token pode fazer em cada endpoint. A visão geral resume os números; a árvore completa fica em **Configurações → Ambiente técnico**, com a opção de salvar o schema em JSON.
 
-- **Passo 1 · Baixar planilha modelo**: gera o `modelo_cameras_netbox.xlsx` com as listas de Site e Papel preenchidas a partir do NetBox.
-- **Passo 2 · Importar planilha**: abre o diálogo de importação com a planilha preenchida.
-- **Links IP**: gera o `modelo_links_netbox.xlsx` e abre a importação de links (blocos e endereço do link), que não passa pela importação de devices.
+- **Baixar planilha modelo** (na visão geral): gera o `modelo_cameras_netbox.xlsx` com as listas de Site e Papel preenchidas a partir do NetBox.
+- **Importar planilha**: abre o diálogo de importação com o fluxo em etapas.
+- **Links IP**: gera o `modelo_links_netbox.xlsx` e abre a importação de links (blocos e endereço do link), que não passa pela importação de devices. O inventário de devices que os links usam é lido na primeira ação de links da sessão, com aviso na tela; ele não atrasa o login nem a importação de câmeras.
+
+### Tempo de conexão
+
+A descoberta pede só os campos que o app usa e não baixa o inventário inteiro de devices no login. Na instância de referência (7.153 sites, 5.549 devices, certificado autoassinado), o login caiu de **28,7 s para ~6,5 s**. A tela de carregamento mostra a etapa em andamento ("Lendo sites…", "Contando devices…", "Lendo permissões do token…") e o aviso de rede lenta só aparece se a descoberta ficar 6 s sem avançar.
+
+O inventário de devices (id, nome e site) é a parte mais cara (~12 s nessa instância) e só é necessário para conferir o site dos links. Por isso ele é carregado sob demanda, na primeira ação de links da sessão; a página mostra "Carregando inventário de devices" e libera os botões ao terminar. Se a leitura falhar, o app avisa que a conferência de site será feita durante a importação.
 
 ### A planilha modelo
 
@@ -111,11 +138,14 @@ Aceita `.xlsx` (com listas suspensas) ou `.csv` (sem listas; o app avisa para co
 
 ### Diálogo de importação
 
-1. Escolha a planilha. O app valida linha a linha e monta o **plano**: cada linha aparece como "pronto", "com erro" ou "pendente: criar \<referência\>".
-2. Referências ausentes (fabricante, device-type) só são criadas com confirmação explícita, no botão "Criar o que está faltando".
-3. Enquanto houver linha com erro, referência pendente ou campo obrigatório do NetBox sem valor, o botão de importar fica **bloqueado**.
-4. Durante a execução há barra de progresso por device e botão de cancelar.
-5. Ao final, um resumo mostra criados, atualizados, sem mudança, erros e avisos, amostras dos erros e o caminho do relatório.
+O diálogo tem quatro etapas visíveis — **Origem**, **Revisão**, **Envio** e **Resumo** — e nada é gravado antes da confirmação.
+
+![Diálogo de importação na etapa de revisão, com o plano linha a linha](docs/screenshots/dialogo-revisao.png)
+
+1. **Origem**: arraste a planilha para a área ou escolha o arquivo (`.xlsx` ou `.csv`).
+2. **Revisão**: o app valida linha a linha e monta o **plano**. Cada linha aparece como pronta, pendente de referência ou com erro, com busca e ordenação na tabela. Referências ausentes (fabricante, device-type) só são criadas com confirmação explícita — e, quando criar é o próximo passo obrigatório, esse é o botão principal da tela.
+3. **Envio**: enquanto houver linha com erro, referência pendente ou campo obrigatório do NetBox sem valor, o botão de importar fica **bloqueado**. Durante a execução há barra de progresso por device e botão de cancelar.
+4. **Resumo**: criados, atualizados, sem mudança, erros e avisos, com a tabela por linha, as primeiras mensagens de erro e o caminho do relatório.
 
 ## Links IP (blocos e endereço do link)
 
@@ -209,7 +239,12 @@ Quatro decisões que valem ser conhecidas:
 O princípio é simples: **a interface pede, o worker executa.** Nenhuma tela fala com a rede.
 
 ```
-main_window.py  (UI — thread principal)
+main_window.py  (estado da sessão e roteamento — thread principal)
+     |
+     +-- shell.py + pages/  (casca, páginas e diálogos — só apresentação)
+     |        |
+     |        +-- ui/  (tokens, QSS, ícones e componentes reutilizáveis)
+     |
      |  emite sinais do Qt
      v
 session.py — SessionWorker  (QObject em QThread propria)
@@ -223,11 +258,14 @@ update_check.py — UpdateCheckWorker  (thread propria, independente)
 GitHub Releases API
 ```
 
-- `app/main_window.py` nunca chama a rede: emite sinais do Qt e reage a sinais de volta. É o que mantém a janela respondendo enquanto a conexão acontece.
+- `app/main_window.py` nunca chama a rede: emite sinais do Qt e reage a sinais de volta. Ficou com o estado da sessão, o token e o roteamento entre login, carregamento e a casca.
+- `app/shell.py` é a casca: barra lateral, cabeçalho e `QStackedWidget` com as páginas. As páginas (`app/pages/`) não conhecem a sessão — emitem sinais e a janela decide.
+- `app/ui/` é o design system: `tokens.py` (cores dos dois temas, espaçamento, raios, tipografia), `styles.py` (QSS gerado a partir dos tokens), `icons.py` (ícones desenhados), `components.py`, `table.py`, `nav.py` e `flow.py` (peças compartilhadas pelos diálogos).
 - `app/session.py` tem o `SessionWorker`, um `QObject` movido para uma `QThread` com `moveToThread`. Conexão, descoberta, provisionamento de referências e importação rodam todos nessa thread, e o Qt entrega os resultados por conexão enfileirada — a UI não toca em widget a partir de outra thread.
 - `app/netbox_client.py` é o cliente REST: paginação, rate limit, esquema de token (`Token`/`Bearer`) e mensagens de erro legíveis.
-- `app/import_plan.py` é puro de propósito: transforma a planilha validada em payload sem tocar na rede, o que o torna testável offline.
+- `app/import_plan.py` e `app/link_plan.py` são puros de propósito: transformam a planilha validada em payload sem tocar na rede, o que os torna testáveis offline.
 - `app/provision.py` descobre o ambiente e faz os upserts; `app/reports.py` grava log, JSON e CSV no fim da importação.
+- `app/history.py` lê os relatórios para a tela de Histórico. É puro e tolerante a arquivo corrompido.
 - A verificação de atualizações usa uma **segunda thread** (`app/update_check.py`), independente da sessão do NetBox, disparada no boot.
 
 ## Testes
@@ -236,7 +274,7 @@ GitHub Releases API
 python -m unittest discover -s tests
 ```
 
-Usam apenas a stdlib (`unittest`) e rodam **sem rede**. Cobrem a leitura e validação da planilha, o plano de importação, o cliente HTTP, o provisionamento, a sessão, a checagem de atualizações, o download do instalador, credenciais, caminhos e partes da interface (toast, spinner, janela). Hoje são 429 testes. Rode antes de alterar a importação, a planilha, os links ou a checagem de atualizações.
+Usam apenas a stdlib (`unittest`) e rodam **sem rede**. Cobrem a leitura e validação da planilha, o plano de importação, o cliente HTTP, o provisionamento, a sessão, a checagem de atualizações, o download do instalador, credenciais, caminhos, o histórico, as preferências e a interface (design system, tabela, fluxo em etapas, toast, spinner, janela). Hoje são 502 testes. Rode antes de alterar a importação, a planilha, os links, a interface ou a checagem de atualizações.
 
 O CI roda essa suíte a cada push, em **Windows** (é obrigatório: a distribuição usa a DPAPI do Windows) nas versões 3.12 e 3.14 do Python, e o Ruff separadamente em Linux. A suíte inteira também passa no Linux, onde o app roda a partir do código-fonte. O estado está no badge no topo.
 
@@ -307,6 +345,7 @@ O que não versionar: `build/` e `dist/` (artefatos). O `ImportadorCameras.spec`
 | --- | --- |
 | Relatórios (`reports/`) e `app_error.log` | Código-fonte: raiz do projeto. `.exe`: ao lado do executável; se a pasta não for gravável, `%LOCALAPPDATA%\ImportadorNetBox`. |
 | Token guardado (`token.dat`, cifrado) | `%LOCALAPPDATA%\ImportadorNetBox`, sempre — nunca ao lado do `.exe`. |
+| Preferências (`preferences.json`, só o tema) | `%LOCALAPPDATA%\ImportadorNetBox` (no Linux, `$XDG_DATA_HOME` ou `~/.local/share/ImportadorNetBox`). |
 
 Resolvido por `app/paths.py`.
 
@@ -317,6 +356,7 @@ Resolvido por `app/paths.py`.
 ## Status
 
 - **Pronto:** login por token cifrado, descoberta do ambiente, planilha modelo com listas suspensas, plano de importação com prévia, importação idempotente (device, interface, IP e `primary_ip4`), relatórios em log/JSON/CSV, instalador Inno Setup e portátil, e a verificação de atualizações — que avisa, baixa o instalador e o abre.
+- **Interface:** navegação em páginas (visão geral, importação, links IP, histórico e configurações), temas escuro e claro, design system centralizado e fluxo de importação em quatro etapas com revisão obrigatória antes do envio.
 - **Fora do escopo, por decisão de projeto:** o app **não** instala sozinho, sem ninguém na frente, e não substitui o próprio `.exe` em execução. Isso exigiria um processo auxiliar, porque o Windows trava o arquivo em uso.
 - **Plataforma:** Windows 10/11 x64 na distribuição. Em Linux o app roda do código-fonte para teste (`tools/rodar_linux.sh`); no Linux o token é protegido pelo chaveiro do sistema ou por permissão de arquivo `0600`, nunca pelo DPAPI.
 - **Device criado pelo link** recebe apenas nome, site, papel, device-type e os custom fields do deployment: firmware, MAC e NVR não vêm da planilha de links (esses campos são da importação de câmeras). O que falta aparece no relatório.
@@ -347,28 +387,45 @@ Módulos de `app/`:
 
 | Módulo | Função |
 | --- | --- |
-| `app/main.py` | Ponto de entrada: QApplication, fonte Inter, tema escuro e janela principal; falhas sem console vão para `app_error.log`. |
-| `app/main_window.py` | Janela com as três telas (login, carregando, ambiente); gera o modelo e abre a importação. |
+| `app/main.py` | Ponto de entrada: QApplication, fonte Inter, tema salvo e janela principal; falhas sem console vão para `app_error.log`. |
+| `app/main_window.py` | Estado da sessão e roteamento entre login, carregamento e a casca; gera o modelo e abre a importação. |
+| `app/shell.py` | Casca da aplicação: barra lateral, cabeçalho e `QStackedWidget` com as páginas. |
 | `app/session.py` | `SessionWorker`: thread única que detém a sessão HTTP; conecta, descobre o ambiente, provisiona referências, executa a importação e grava os relatórios. |
 | `app/netbox_client.py` | Cliente REST: paginação, rate limit, esquema de token `Token`/`Bearer` e mensagens de erro legíveis. |
 | `app/provision.py` | Descoberta do ambiente (snapshot), criação de referências e upserts de device, interface, IP e `primary_ip4`. |
 | `app/import_plan.py` | Plano de importação: planilha validada → payload por device; resolve referências e custom fields. Não fala com a rede (testável offline). |
 | `app/link_sheet.py` | Leitura e validação da planilha de links IP (CIDR, IP dentro do bloco, duplicidades) e geração do modelo com listas suspensas. |
 | `app/link_plan.py` | Plano de links: planilha validada → prefixos e IP do link, com o escopo no formato da instância. Não fala com a rede. |
-| `app/link_dialog.py` | Diálogo de importação de links: plano, progresso e resultado. |
 | `app/spreadsheet.py` | Leitura e validação de `.xlsx`/`.csv` e geração do modelo com listas suspensas de Site e Papel. |
-| `app/import_dialog.py` | Diálogo de importação: plano, provisionamento de referências, progresso e resultado. |
+| `app/import_dialog.py` | Diálogo de câmeras em quatro etapas: origem, revisão, envio e resumo. |
+| `app/link_dialog.py` | O mesmo fluxo para links IP, sem criação de referências. |
 | `app/reports.py` | Grava log, JSON e CSV em `reports/`. |
+| `app/history.py` | Lê os relatórios JSON para a página de Histórico (tolerante a arquivo corrompido). |
 | `app/credentials.py` | Guarda o token cifrado com o DPAPI do Windows (`token.dat`). |
+| `app/preferences.py` | Preferências locais pequenas (`preferences.json`), hoje só o tema. |
 | `app/config.py` | Configuração fixa do deployment: URL do NetBox e `CUSTOM_FIELDS`. |
 | `app/paths.py` | Caminhos no código-fonte e no `.exe` (assets embutidos, pastas graváveis). |
-| `app/theme.py` | Paleta e estilo do tema escuro na identidade do NetBox. |
+| `app/theme.py` | Paleta ativa, QSS e troca de tema em tempo de execução. |
 | `app/loading.py` | Spinner da tela de carregamento (desenhado com QPainter). |
-| `app/toast.py` | Notificações não invasivas no canto superior direito. |
+| `app/toast.py` | Notificações não invasivas no canto superior direito, no tema ativo. |
 | `app/version.py` | Versão do aplicativo em Python (`__version__`), usada na checagem de atualizações. |
 | `app/updater.py` | Comparação de versões (`parse_version`, `ha_atualizacao`) e leitura da última Release no GitHub. Não fala com a interface (testável offline). |
 | `app/update_check.py` | `UpdateCheckWorker`: roda a checagem em thread própria e avisa por sinal. Falha silenciosa sem internet. |
 | `app/update_download.py` | `UpdateDownloadWorker`: baixa o instalador em streaming, com progresso, e o abre. Valida que a URL é HTTPS e de um host do GitHub antes de baixar. |
+
+Pacotes novos da camada de apresentação:
+
+| Caminho | Função |
+| --- | --- |
+| `app/ui/tokens.py` | Cores dos temas escuro e claro, escala de espaçamento, raios e tipografia. |
+| `app/ui/styles.py` | Folha de estilos única, gerada a partir dos tokens. |
+| `app/ui/icons.py` | Ícones desenhados com QPainter, um só estilo, prontos para HiDPI e para os dois temas. |
+| `app/ui/components.py` | Card, badge, banner, botão com ícone, campo de busca, stepper, estado vazio e página rolável. |
+| `app/ui/table.py` | Tabela com busca, ordenação, contagem e coluna de situação em pílula. |
+| `app/ui/nav.py` | Barra lateral, cabeçalho, avatar e estado da conexão. |
+| `app/ui/flow.py` | Peças comuns aos diálogos: área de arrastar, cabeçalho com etapas e resumo. |
+| `app/ui/motion.py` | Transição suave na troca de página. |
+| `app/pages/` | Login, carregamento, visão geral, importação, links, histórico e configurações. |
 
 ## Controle de versão
 

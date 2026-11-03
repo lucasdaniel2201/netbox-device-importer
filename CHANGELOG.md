@@ -4,6 +4,33 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [Não publicado]
+
+### Alterado
+
+- **Interface reorganizada em casca e páginas.** A janela deixou de ser uma tela única com grupos empilhados: agora há barra lateral (Visão geral, Importação, Links IP, Histórico, Configurações), cabeçalho com título, migalha, estado da conexão e ações globais, e páginas independentes. Nenhuma lógica de negócio mudou de comportamento — `session.py`, `provision.py`, `import_plan.py`, `link_plan.py`, `link_sheet.py` e `spreadsheet.py` continuam sendo os donos das regras.
+- **Design system centralizado** em `app/ui/` (tokens, folha de estilos, ícones desenhados e componentes). Nenhuma tela escreve cor literal: `theme.palette()` é a única fonte, e o QSS é gerado a partir dos tokens.
+- **Tema claro e escuro**, com alternância no cabeçalho e nas Configurações. A escolha é lembrada em `preferences.json` (pasta de dados do usuário) e vale para todas as telas.
+- **Fluxo de importação em quatro etapas visíveis** (Origem → Revisão → Envio → Resumo), com arrastar-e-soltar da planilha, busca e ordenação na tabela do plano, criação de referências como ação principal quando é o próximo passo obrigatório e resumo por linha ao final. O mesmo desenho foi aplicado aos links IP.
+- **Nova página de Histórico**, que lê os relatórios JSON gravados em `reports/` e mostra execução, tipo, contagens e situação; duplo clique abre o relatório.
+- **Configurações** reúnem conexão, token (com a proteção em uso), aparência e o ambiente técnico descoberto (permissões, contagens, objetos e custom fields).
+- **Ícones desenhados com QPainter** em `app/ui/icons.py`, com um único estilo, em vez de misturar glifos e bibliotecas externas.
+- **Conexão muito mais rápida.** A descoberta passou a pedir só os campos que o app usa (7.153 sites com payload completo eram 13 s), o inventário de devices saiu do login e é carregado apenas quando uma ação de links o exige, e a tela de carregamento mostra a etapa em andamento. Na instância de referência (7.153 sites, 5.549 devices), o login caiu de **28,7 s para ~6,5 s**; o inventário (~12,3 s) só é pago na primeira ação de links da sessão.
+
+### Adicionado
+
+- `app/history.py`: leitura dos relatórios (pura, testável offline; arquivo corrompido é ignorado).
+- `app/preferences.py`: preferências locais pequenas (hoje, só o tema), com tolerância a arquivo corrompido.
+- Resultado por linha no evento de conclusão da importação, usado pela tela de resumo (o arquivo de relatório continua com o mesmo formato).
+- Testes do design system, da tabela, do fluxo em etapas, do histórico e das preferências (502 testes no total).
+- Capturas novas em `docs/screenshots/` (login, carregamento, painel, importação, links, configurações, diálogo de revisão, tema claro e aviso de atualização).
+
+### Corrigido
+
+- A tela de login e o carregamento não exibem mais o servidor real nas capturas de tela do README (o endereço fictício é aplicado no módulo de cada página).
+- Tabelas de poucas linhas não ficam mais com uma área vazia desproporcional: a altura acompanha o número de linhas.
+- O aviso de rede lenta só aparece quando a descoberta fica 6 s sem avançar; cada etapa concluída reinicia a contagem.
+
 ## [1.1.0] - 2026-10-29
 
 ### Adicionado

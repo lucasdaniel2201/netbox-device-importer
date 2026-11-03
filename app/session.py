@@ -47,6 +47,7 @@ class SessionWorker(QObject):
     request_provision = Signal(object)  # lista de Reference a criar
     request_import = Signal(object)  # ImportPlan
     request_import_links = Signal(object)  # LinkPlan
+    request_device_inventory = Signal()
     request_cancel = Signal()
     request_logout = Signal()
 
@@ -64,6 +65,8 @@ class SessionWorker(QObject):
     links_progress = Signal(int, int, str, str)
     links_done = Signal(dict)
     links_failed = Signal(str)
+    discovery_progress = Signal(str)  # etapa legivel, para a tela de carregamento
+    device_inventory_ready = Signal(dict)  # inventario de devices (fluxo de links)
     log = Signal(str)
     disconnected = Signal()
 
@@ -79,6 +82,7 @@ class SessionWorker(QObject):
         self.request_provision.connect(self.provision_references)
         self.request_import.connect(self.run_import)
         self.request_import_links.connect(self.run_links_import)
+        self.request_device_inventory.connect(self.load_device_inventory)
         self.request_cancel.connect(self.cancel)
         self.request_logout.connect(self.logout)
 
@@ -92,10 +96,18 @@ class SessionWorker(QObject):
         return self._snapshot
 
     # ------------------------------------------------------------ acoes (slots)
-    @staticmethod
-    def _connect_and_discover(url: str, token: str, verify_tls: bool):
+    def _connect_and_discover(self, url: str, token: str, verify_tls: bool):
         client = NetBoxClient(url, token, verify_tls=verify_tls)
-        return client, provision.discover(client)
+        try:
+            snapshot = provision.discover(
+                client,
+                progress=self.discovery_progress.emit,
+                with_devices=False,
+            )
+        except Exception:
+            client.close()
+            raise
+        return client, snapshot
 
     @Slot(str, str, bool)
     def connect_netbox(self, url: str, token: str, verify_tls: bool) -> None:
@@ -134,13 +146,46 @@ class SessionWorker(QObject):
         if client is None:
             self.discover_failed.emit("Nao ha sessao conectada.")
             return
+        anterior = self._snapshot or {}
         try:
-            snapshot = provision.discover(client)
+            snapshot = provision.discover(
+                client,
+                progress=self.discovery_progress.emit,
+                with_devices=False,
+            )
         except Exception as exc:
             self.discover_failed.emit(f"Falha ao consultar o ambiente: {exc}")
             return
+
+        # O inventario de devices custa segundos e muda pouco: um "Atualizar" do
+        # ambiente nao deve obrigar a baixa-lo de novo.
+        if anterior.get("inventory_ready"):
+            snapshot["objects"]["devices"] = anterior.get("objects", {}).get("devices", [])
+            snapshot["inventory_ready"] = True
+            if anterior.get("inventory_error"):
+                snapshot["inventory_error"] = anterior["inventory_error"]
+
         self._snapshot = snapshot
         self.discovered.emit(snapshot)
+
+    @Slot()
+    def load_device_inventory(self) -> None:
+        """Busca o inventario de devices quando o fluxo de links precisa dele.
+
+        Roda na thread da sessao, como todo o resto. A tela nao congela: o pedido
+        e enfileirado e a barra lateral continua respondendo.
+        """
+        client = self._client
+        snapshot = self._snapshot
+        if client is None or snapshot is None:
+            return
+        if snapshot.get("inventory_ready"):
+            self.device_inventory_ready.emit(snapshot)
+            return
+        provision.fetch_device_inventory(
+            client, snapshot, progress=self.discovery_progress.emit
+        )
+        self.device_inventory_ready.emit(snapshot)
 
     @Slot(str)
     def save_snapshot(self, path: str) -> None:
@@ -378,6 +423,9 @@ class SessionWorker(QObject):
             return
 
         summary["report_paths"] = {key: str(value) for key, value in paths.items()}
+        # Resultado por linha para a tela de resumo: o relatorio ja foi gravado,
+        # entao isso nao altera o arquivo nem o contrato dele.
+        summary["results"] = resultados
         self.import_done.emit(summary)
 
     def _ensure_device(self, client, row) -> tuple[dict | None, str, list[str]]:
@@ -673,6 +721,7 @@ class SessionWorker(QObject):
             return
 
         summary["report_paths"] = {key: str(value) for key, value in paths.items()}
+        summary["results"] = resultados
         self.links_done.emit(summary)
 
     @Slot()

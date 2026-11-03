@@ -125,6 +125,37 @@ class TestConexao(SessionTestCase):
         self.assertFalse(self.connected)
 
 
+class TestInventarioDeDevices(SessionTestCase):
+    """O inventario grande nao entra no login; e carregado quando o fluxo pede."""
+
+    class Cliente:
+        base_url = "https://nb.local"
+
+        def fetch_all(self, path, params=None):
+            return [{"id": 7, "name": "RTR-MATRIZ", "site": {"id": 9}}]
+
+    def test_carrega_e_avisa(self):
+        recebidos = []
+        self.worker.device_inventory_ready.connect(recebidos.append)
+        self.worker._client = self.Cliente()
+        inicial = snapshot([], status={"netbox-version": "4.3.6"})
+        inicial["inventory_ready"] = False
+        self.worker._snapshot = inicial
+
+        self.worker.load_device_inventory()
+
+        self.assertEqual(len(recebidos), 1)
+        self.assertTrue(recebidos[0]["inventory_ready"])
+        self.assertEqual(recebidos[0]["objects"]["devices"][0]["label"], "RTR-MATRIZ")
+        self.assertEqual(recebidos[0]["counts"]["devices"], 1)
+
+    def test_sem_sessao_nao_avisa(self):
+        recebidos = []
+        self.worker.device_inventory_ready.connect(recebidos.append)
+        self.worker.load_device_inventory()
+        self.assertEqual(recebidos, [])
+
+
 class TestRetryDeCertificado(SessionTestCase):
     def test_repete_aceitando_certificado_autoassinado(self):
         primeiro = FakeClient()

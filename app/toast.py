@@ -3,11 +3,12 @@
 Boas praticas aplicadas:
 - posicionadas abaixo do cabecalho, sem cobri-lo (offset informado pela janela);
 - sinalizam o tipo por icone E cor (nao dependem apenas de cor);
-- empilham em vez de se sobrescreverem (varias acoes seguidas nao se perdem);
-- auto-fechamento pausa quando o mouse esta sobre o aviso (tempo para ler);
+- empilham em vez de se sobrescreverem;
+- auto-fechamento pausa quando o mouse esta sobre o aviso;
 - sempre trazem botao de fechar;
 - duracao proporcional a gravidade (erro fica mais tempo que informacao);
-- animacao curta de entrada/saida, sem chamar atencao demais.
+- animacao curta de entrada/saida, sem chamar atencao demais;
+- acompanham o tema ativo (inclusive se ele mudar com o aviso aberto).
 """
 
 from __future__ import annotations
@@ -38,16 +39,16 @@ from app import theme
 
 KIND_STYLES = {
     # Icones escolhidos entre os glifos que EXISTEM na fonte Inter (empacotada):
-    # check U+2713, multiplicacao U+00D7, exclamação e "i". Evitar simbolos fora
+    # check U+2713, multiplicacao U+00D7, exclamacao e "i". Evitar simbolos fora
     # da fonte (ex.: U+2715), que caem em fallback e renderizam deformados.
-    "success": {"accent": theme.SUCCESS, "icon": "\u2713", "duration": 4000},
-    "error": {"accent": theme.ERROR, "icon": "\u00d7", "duration": 9000},
-    "warning": {"accent": theme.WARNING, "icon": "!", "duration": 6000},
-    "info": {"accent": theme.INFO, "icon": "i", "duration": 4000},
+    "success": {"accent": "#3DD68C", "icon": "\u2713", "duration": 4000},
+    "error": {"accent": "#F87171", "icon": "\u00d7", "duration": 9000},
+    "warning": {"accent": "#F2B84B", "icon": "!", "duration": 6000},
+    "info": {"accent": "#5B9DFF", "icon": "i", "duration": 4000},
 }
 
-TOAST_WIDTH = 360
-TOAST_MIN_HEIGHT = 46
+TOAST_WIDTH = 380
+TOAST_MIN_HEIGHT = 48
 MARGIN = 16
 SPACING = 8
 MAX_VISIBLE = 4
@@ -66,9 +67,10 @@ class CloseButton(QPushButton):
         self.setFixedSize(20, 20)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Fechar")
-        self._color = QColor(theme.TEXT_FAINT)
-        self._hover = QColor(theme.TEXT)
         self.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        p = theme.palette()
+        self._color = QColor(p.text_faint)
+        self._hover = QColor(p.text)
 
     def enterEvent(self, event) -> None:  # noqa: N802
         self.update()
@@ -88,10 +90,14 @@ class CloseButton(QPushButton):
 
         margin = 6
         rect = self.rect().adjusted(margin, margin, -margin, -margin)
-        # Desenha as duas diagonais do "X".
         painter.drawLine(QLineF(rect.topLeft(), rect.bottomRight()))
         painter.drawLine(QLineF(rect.topRight(), rect.bottomLeft()))
         painter.end()
+
+    def apply_theme(self, palette) -> None:
+        self._color = QColor(palette.text_faint)
+        self._hover = QColor(palette.text)
+        self.update()
 
 
 class ToastItem(QFrame):
@@ -110,76 +116,58 @@ class ToastItem(QFrame):
     ) -> None:
         super().__init__(parent)
         style = KIND_STYLES.get(kind, KIND_STYLES["info"])
+        self._kind = kind if kind in KIND_STYLES else "info"
         self._duration = style["duration"] if duration_ms is None else duration_ms
         self._anim: QPropertyAnimation | None = None
         self._action_callback = action_callback
-        # Botao de acao e opcional: sem ele o toast continua exatamente como antes.
         self.action_button: QPushButton | None = None
 
         self.setObjectName("toastCard")
         self.setFixedWidth(TOAST_WIDTH)
         self.setMinimumHeight(TOAST_MIN_HEIGHT)
-        self.setStyleSheet(
-            f"QFrame#toastCard {{ background: {theme.CARD}; border: 1px solid {theme.BORDER};"
-            " border-radius: 10px; }"
-            "QFrame#toastAccent { border-top-left-radius: 10px;"
-            " border-bottom-left-radius: 10px; }"
-            f"QLabel#toastText {{ color: {theme.TEXT}; font-size: 12px;"
-            " background: transparent; }"
-        )
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 110))
-        self.setGraphicsEffect(shadow)
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._shadow.setBlurRadius(24)
+        self._shadow.setOffset(0, 6)
+        self.setGraphicsEffect(self._shadow)
 
         row = QHBoxLayout(self)
-        row.setContentsMargins(0, 10, 8, 10)
+        row.setContentsMargins(0, 11, 10, 11)
         row.setSpacing(10)
 
-        accent = QFrame()
-        accent.setObjectName("toastAccent")
-        accent.setFixedWidth(5)
-        accent.setStyleSheet(
-            f"background: {style['accent']};"
-            " border-top-left-radius: 10px; border-bottom-left-radius: 10px;"
-        )
-        row.addWidget(accent)
+        self._accent = QFrame()
+        self._accent.setObjectName("toastAccent")
+        self._accent.setFixedWidth(4)
+        row.addWidget(self._accent)
 
-        icon = QLabel(style["icon"])
-        icon.setFixedSize(22, 22)
-        icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon.setStyleSheet(
-            f"background: {style['accent']}; color: #ffffff; border-radius: 11px;"
-            " font-size: 12px; font-weight: 700;"
-        )
-        row.addWidget(icon)
+        self._icon = QLabel(style["icon"])
+        self._icon.setFixedSize(22, 22)
+        self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        row.addWidget(self._icon)
 
-        text = QLabel(message)
-        text.setObjectName("toastText")
-        text.setWordWrap(True)
-        text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        row.addWidget(text, stretch=1)
+        self._text = QLabel(message)
+        self._text.setObjectName("toastText")
+        self._text.setWordWrap(True)
+        self._text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row.addWidget(self._text, stretch=1)
 
         if action_label is not None:
             action = QPushButton(action_label)
-            # "primaryButton" reaproveita o botao de acao principal do tema:
-            # mesma linguagem visual do resto do app, inclusive o estado disabled
-            # usado durante o download do instalador.
             action.setObjectName("primaryButton")
             action.setCursor(Qt.CursorShape.PointingHandCursor)
             action.clicked.connect(self._on_action_clicked)
             self.action_button = action
             row.addWidget(action, alignment=Qt.AlignmentFlag.AlignVCenter)
 
-        close = CloseButton()
-        close.clicked.connect(self.dismiss)
-        row.addWidget(close, alignment=Qt.AlignmentFlag.AlignTop)
+        self._close = CloseButton()
+        self._close.clicked.connect(self.dismiss)
+        row.addWidget(self._close, alignment=Qt.AlignmentFlag.AlignTop)
 
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.dismiss)
+
+        self.apply_theme(theme.palette())
         self._start_timer()
 
     # ------------------------------------------------------------------ tempo
@@ -188,8 +176,6 @@ class ToastItem(QFrame):
             self._timer.start(self._duration)
 
     def _on_action_clicked(self) -> None:
-        # So existe quando o toast foi criado com acao; o botao chama o callback
-        # informado pela janela (que e quem conhece o Release e o worker).
         if self._action_callback is not None:
             self._action_callback()
 
@@ -204,7 +190,6 @@ class ToastItem(QFrame):
             self.action_button.setEnabled(enabled)
 
     def enterEvent(self, event) -> None:  # noqa: N802
-        # Pausa o auto-fechamento enquanto o mouse estiver sobre o aviso.
         self._timer.stop()
         super().enterEvent(event)
 
@@ -228,7 +213,6 @@ class ToastItem(QFrame):
         anim.start()
 
     def slide_in_from_right(self) -> None:
-        """Coloca o aviso deslocado e anima ate a posicao final."""
         final = self.pos()
         self.move(final.x() + SLIDE, final.y())
         self.animate_to(final)
@@ -249,6 +233,30 @@ class ToastItem(QFrame):
     def close_now(self) -> None:
         self.dismissed.emit(self)
 
+    # ------------------------------------------------------------------- tema
+    def apply_theme(self, palette) -> None:
+        p = palette
+        accent = p.kind_color(self._kind)
+        self._shadow.setColor(QColor(0, 0, 0, 110 if p.is_dark else 45))
+        self.setStyleSheet(
+            f"QFrame#toastCard {{ background: {p.surface};"
+            f" border: 1px solid {p.border}; border-radius: 12px; }}"
+            "QFrame#toastAccent { border-top-left-radius: 12px;"
+            " border-bottom-left-radius: 12px; }"
+            f"QLabel#toastText {{ color: {p.text}; font-size: 12px;"
+            " background: transparent; }"
+        )
+        self._accent.setStyleSheet(
+            f"background: {accent};"
+            " border-top-left-radius: 12px; border-bottom-left-radius: 12px;"
+        )
+        self._icon.setStyleSheet(
+            f"background: {accent}; color: {p.on_accent}; border-radius: 11px;"
+            " font-size: 12px; font-weight: 700;"
+        )
+        self._close.apply_theme(p)
+        self.update()
+
 
 class ToastManager(QWidget):
     """Coluna de avisos no canto superior direito da janela."""
@@ -259,8 +267,6 @@ class ToastManager(QWidget):
         self._items: list[ToastItem] = []
         self._top_offset = 96
         parent.installEventFilter(self)
-        # Mostra a si mesmo: garante funcionamento mesmo se for criado depois que
-        # o widget pai ja foi exibido.
         self.show()
 
     def set_top_offset(self, offset: int) -> None:
@@ -293,10 +299,13 @@ class ToastManager(QWidget):
         item.adjustSize()
         item.show()
         self.raise_()
-        # Posicoes definidas na hora (empilhamento previsivel); so a entrada anima.
         self._relayout()
         item.slide_in_from_right()
         return item
+
+    def apply_theme(self, palette) -> None:
+        for item in self._items:
+            item.apply_theme(palette)
 
     def _on_dismissed(self, item: ToastItem) -> None:
         if item in self._items:
