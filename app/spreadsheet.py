@@ -216,11 +216,6 @@ def template_columns(selected_optional: list[str] | None = None) -> list[str]:
     return [key for key in TARGET_FIELDS if key in chosen]
 
 
-def writable_optional_columns() -> list[ColumnSpec]:
-    """Colunas opcionais oferecidas no popup de geracao do modelo."""
-    return [COLUMNS_BY_KEY[key] for key in OPTIONAL_COLUMNS]
-
-
 def _normalize_header(value: str) -> str:
     """Cabecalho sem acentos e sem espacos duplicados."""
     return re.sub(r"\s+", " ", normalize_for_match(value)).strip()
@@ -292,9 +287,9 @@ def _validate_row(
         )
     elif len(dup_lines.get(name_key, [])) > 1:
         outras = [linha for linha in dup_lines[name_key] if linha != row_number]
+        onde = "na linha" if len(outras) == 1 else "nas linhas"
         result.issues.append(
-            "Nome duplicado com a(s) linha(s): "
-            + ", ".join(str(linha) for linha in outras)
+            "Nome duplicado " + onde + ": " + ", ".join(str(linha) for linha in outras)
         )
 
     site = cells.get(SITE_KEY, "")
@@ -340,8 +335,13 @@ def _rows_from_table(
     # (coluna "IP" pode vir em branco - a camera fica documentada sem endereco).
     required_missing = [COLUMNS_BY_KEY[key].label for key in FIXED_COLUMNS if key in missing]
     if required_missing:
+        onde = (
+            "Coluna obrigatoria ausente"
+            if len(required_missing) == 1
+            else "Colunas obrigatorias ausentes"
+        )
         raise ValueError(
-            "Coluna(s) obrigatoria(s) do modelo nao encontrada(s): "
+            f"{onde}: "
             + ", ".join(required_missing)
             + ". Confira o cabecalho ou baixe o modelo de exemplo."
         )
@@ -503,15 +503,22 @@ def add_dropdown(
 ) -> None:
     """Lista suspensa numa coluna da planilha, apontando para a aba de listas.
 
-    Nao mexemos em `showDropDown`: no formato do Excel esse atributo e invertido
-    (1 = esconder a seta).
+    Dois detalhes do formato importam para a lista funcionar fora do Excel:
+
+    - `formula1` vai **sem** o `=` inicial. No OOXML o sinal de igual ja esta
+      implicito no elemento; o Excel aceita com `=` e conserta ao salvar, mas o
+      Google Sheets nao interpreta `=Listas!$A$2:$A$3` e rebaixa a celula para
+      texto livre (o dropdown simplesmente nao aparece). Sem o `=`, os dois
+      programas leem a lista.
+    - `showDropDown` NAO e tocado: no formato do Excel esse atributo e invertido
+      (1 = esconder a seta).
     """
     if key not in selected or not valores:
         return
     letra = get_column_letter(selected.index(key) + 1)
     validacao = DataValidation(
         type="list",
-        formula1=f"={LIST_SHEET_TITLE}!${list_column}$2:${list_column}${len(valores) + 1}",
+        formula1=f"{LIST_SHEET_TITLE}!${list_column}$2:${list_column}${len(valores) + 1}",
         allow_blank=True,
     )
     validacao.errorTitle = titulo_erro

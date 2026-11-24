@@ -90,7 +90,8 @@ class TestHistorico(unittest.TestCase):
         )
         self.assertEqual(com_erro.status_label, "Com erros")
         self.assertEqual(com_erro.status_kind, "danger")
-        self.assertIn("1 criado(s)", com_erro.result_label)
+        self.assertIn("1 criado", com_erro.result_label)
+        self.assertIn("2 erros", com_erro.result_label)
 
         cancelada = history.Run(
             path=run.path, timestamp=run.timestamp, kind="links", canceled=True

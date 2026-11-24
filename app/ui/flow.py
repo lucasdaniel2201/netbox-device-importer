@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from app import theme as theme_mod
+from app.text import plural
 from app.ui import icons
 from app.ui.components import (
     Banner,
@@ -265,27 +266,27 @@ class SummaryPanel(QWidget):
         elif erros:
             self.banner.set_content(
                 "Concluída com erros",
-                f"{erros} linha(s) não foram gravadas. O motivo está nos primeiros erros "
-                "abaixo e no relatório.",
+                f"{plural(erros, 'linha não foi gravada', 'linhas não foram gravadas')}. "
+                "O motivo está nos primeiros erros abaixo e no relatório.",
                 "danger",
             )
         elif avisos:
             self.banner.set_content(
                 "Concluída com avisos",
-                f"{avisos} linha(s) foram gravadas com alguma etapa pendente. Nada foi "
-                "desfeito — veja os avisos abaixo.",
+                f"{plural(avisos, 'linha foi gravada', 'linhas foram gravadas')} com alguma "
+                "etapa pendente. Nada foi desfeito — veja os avisos abaixo.",
                 "warning",
             )
         else:
             self.banner.set_content(
                 "Importação concluída",
-                f"{processados} linha(s) processadas sem erro.",
+                f"{plural(processados, 'linha processada', 'linhas processadas')} sem erro.",
                 "success",
             )
 
         notas = [f"{processados} de {total} linhas processadas."]
         if avisos:
-            notas.append(f"{avisos} linha(s) com aviso.")
+            notas.append(f"{plural(avisos, 'linha com aviso', 'linhas com aviso')}.")
         for nota in extra or []:
             notas.append(nota)
         self.notes.setText("  ·  ".join(notas))

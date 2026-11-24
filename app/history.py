@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from app import reports
+from app.text import plural
 
 KIND_LABELS = {"cameras": "Câmeras", "links": "Links IP"}
 
@@ -51,13 +52,13 @@ class Run:
         """Resumo curto do que aconteceu, na ordem em que importa."""
         partes = []
         if self.created:
-            partes.append(f"{self.created} criado(s)")
+            partes.append(plural(self.created, "criado", "criados"))
         if self.updated:
-            partes.append(f"{self.updated} atualizado(s)")
+            partes.append(plural(self.updated, "atualizado", "atualizados"))
         if self.exists:
             partes.append(f"{self.exists} sem mudança")
         if self.errors:
-            partes.append(f"{self.errors} erro(s)")
+            partes.append(plural(self.errors, "erro", "erros"))
         if not partes:
             partes.append("sem alterações")
         if self.canceled:

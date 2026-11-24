@@ -215,7 +215,12 @@ def pixmap(name: str, color: str, size: int = 20) -> QPixmap:
 
     painter = QPainter(canvas)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-    painter.scale(lado / GRID, lado / GRID)
+    # O QPainter ja trabalha em pixels logicos neste pixmap (por causa do
+    # devicePixelRatio): a escala certa e tamanho logico / grade, nao o lado em
+    # pixels do dispositivo. Escalar pelo lado do dispositivo desenhava o icone
+    # 1,5x maior em telas a 150% e o cortava na borda.
+    logico = lado / ratio
+    painter.scale(logico / GRID, logico / GRID)
 
     # A escala do painter ja converte o traco: 1,7 e a espessura na grade 24x24.
     caneta = QPen(QColor(color), STROKE)

@@ -461,15 +461,6 @@ def reference_labels(snapshot: dict[str, Any], key: str) -> list[str]:
     return [str(item.get("label", "")) for item in snapshot.get("objects", {}).get(key, [])]
 
 
-def site_tenants(snapshot: dict[str, Any]) -> list[tuple[str, int]]:
-    """Tenants presentes nos sites descobertos: [(tenant, quantidade)]."""
-    counts: dict[str, int] = {}
-    for site in snapshot.get("objects", {}).get("sites", []):
-        tenant = str(site.get("tenant") or "")
-        counts[tenant] = counts.get(tenant, 0) + 1
-    return sorted(counts.items(), key=lambda pair: (-pair[1], pair[0]))
-
-
 def device_names(snapshot: dict[str, Any]) -> list[str]:
     """Nomes dos devices descobertos, em ordem alfabetica (lista suspensa do modelo)."""
     return sorted({str(item.get("label")) for item in snapshot.get("objects", {}).get("devices", []) if item.get("label")})

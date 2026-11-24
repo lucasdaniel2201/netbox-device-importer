@@ -283,50 +283,6 @@ class Banner(QFrame):
         self.icon_label.setPixmap(icons.pixmap(nome, cor, 18))
 
 
-class EmptyState(QWidget):
-    """Estado vazio explicito: o que falta e qual e o proximo passo."""
-
-    def __init__(
-        self,
-        title: str,
-        text: str,
-        icon_name: str = "file",
-        parent: QWidget | None = None,
-    ) -> None:
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(GAP_LG, 32, GAP_LG, 32)
-        layout.setSpacing(GAP_SM)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.icon_label = QLabel()
-        self.icon_label.setFixedSize(34, 34)
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        self.title = QLabel(title)
-        self.title.setObjectName("EmptyTitle")
-        self.title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.title)
-
-        self.text = QLabel(text)
-        self.text.setObjectName("EmptyText")
-        self.text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.text.setWordWrap(True)
-        layout.addWidget(self.text)
-
-        self.actions = QHBoxLayout()
-        self.actions.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.actions.setSpacing(GAP_SM)
-        layout.addLayout(self.actions)
-
-        self._icon_name = icon_name
-        self.apply_theme(theme_mod.palette())
-
-    def apply_theme(self, palette) -> None:
-        self.icon_label.setPixmap(icons.pixmap(self._icon_name, palette.text_faint, 32))
-
-
 class Stepper(QWidget):
     """Indicador de etapas: numero, rotulo e a linha que liga cada passo.
 
@@ -489,24 +445,12 @@ def danger_button(text: str, icon_name: str | None = None) -> IconTextButton:
     return botao
 
 
-def field_label(text: str) -> QLabel:
-    label = QLabel(text.upper())
-    label.setObjectName("FieldLabel")
-    return label
-
-
 def muted(text: str, faint: bool = False) -> QLabel:
     """Texto secundario (a cor vem do QSS via propriedade, entao segue o tema)."""
     label = QLabel(text)
     label.setProperty("faint" if faint else "muted", "true")
     label.setWordWrap(True)
     return label
-
-
-def spacer(width: int = 0, height: int = 0) -> QWidget:
-    item = QWidget()
-    item.setFixedSize(width, height)
-    return item
 
 
 def sidebar_width() -> int:

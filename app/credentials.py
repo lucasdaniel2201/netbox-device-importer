@@ -125,11 +125,6 @@ def is_available() -> bool:
     return backend() in ("dpapi", "keyring")
 
 
-def can_store() -> bool:
-    """True se da para guardar o token de algum jeito nesta maquina."""
-    return True
-
-
 def protection_label() -> str:
     """Descricao honesta da protecao em uso (vai para a tela)."""
     return {

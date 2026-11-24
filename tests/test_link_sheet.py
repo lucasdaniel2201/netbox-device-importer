@@ -180,9 +180,9 @@ class TestModelo(unittest.TestCase):
         self.assertEqual(
             formulas,
             [
-                f"={ls.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}",
-                f"={ls.LIST_SHEET_TITLE}!$B$2:$B${len(ROLES) + 1}",
-                f"={ls.LIST_SHEET_TITLE}!$C$2:$C$3",
+                f"{ls.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}",
+                f"{ls.LIST_SHEET_TITLE}!$B$2:$B${len(ROLES) + 1}",
+                f"{ls.LIST_SHEET_TITLE}!$C$2:$C$3",
             ],
         )
 

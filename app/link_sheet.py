@@ -407,9 +407,9 @@ def _mark_duplicates(
             if linha != resultado.row_number
         ]
         if outras:
+            onde = "na linha" if len(outras) == 1 else "nas linhas"
             severidade.append(
-                f"{rotulo} repetido com a(s) linha(s): "
-                + ", ".join(str(linha) for linha in outras)
+                f"{rotulo} repetido {onde}: " + ", ".join(str(linha) for linha in outras)
             )
 
 
@@ -431,8 +431,13 @@ def read_file(
 
     faltando = [COLUMNS_BY_KEY[key].label for key in FIXED_COLUMNS if key in missing]
     if faltando:
+        onde = (
+            "Coluna obrigatoria ausente"
+            if len(faltando) == 1
+            else "Colunas obrigatorias ausentes"
+        )
         raise ValueError(
-            "Coluna(s) obrigatoria(s) do modelo de links nao encontrada(s): "
+            f"{onde} do modelo de links: "
             + ", ".join(faltando)
             + ". Confira o cabecalho ou baixe o modelo de exemplo."
         )

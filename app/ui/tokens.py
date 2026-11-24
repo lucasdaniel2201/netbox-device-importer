@@ -181,4 +181,3 @@ FONT_CAPTION = 11
 # ------------------------------------------------------------------ metricas
 SIDEBAR_WIDTH = 248
 HEADER_HEIGHT = 76
-CONTENT_MAX_WIDTH = 1180

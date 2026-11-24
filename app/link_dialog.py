@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 
 from app import link_plan, provision, theme as _theme
 from app.link_sheet import read_file
+from app.text import plural
 from app.ui import icons
 from app.ui.components import (
     Badge,
@@ -316,13 +317,15 @@ class LinkImportDialog(QDialog):
         deduzidos = sum(1 for row in plan.ready_rows if row.link_ip_deduced)
         sem_campo = plan.missing_required
 
-        self.chip_ready.setText(f"{prontos} link(s) pronto(s)")
+        self.chip_ready.setText(plural(prontos, "link pronto", "links prontos"))
         self.chip_ready.show()
         self.chip_errors.setVisible(bool(com_erro))
         self.chip_errors.setText(f"{com_erro} com erro")
         self.chip_devices.setVisible(bool(plan.devices_to_create))
-        self.chip_devices.setText(f"{plan.devices_to_create} device(s) a criar")
-        self.chip_prefixes.setText(f"{plan.prefix_count} prefixo(s)")
+        self.chip_devices.setText(
+            plural(plan.devices_to_create, "device a criar", "devices a criar")
+        )
+        self.chip_prefixes.setText(plural(plan.prefix_count, "prefixo", "prefixos"))
         self.chip_prefixes.show()
         self.chip_deduced.setVisible(bool(deduzidos))
         self.chip_deduced.setText(f"{deduzidos} com IP deduzido")
@@ -333,7 +336,7 @@ class LinkImportDialog(QDialog):
 
         partes = []
         if com_erro:
-            partes.append(f"{com_erro} linha(s) com erro")
+            partes.append(plural(com_erro, "linha com erro", "linhas com erro"))
         if not com_erro and not sem_campo and prontos:
             partes.append("Tudo pronto para enviar.")
         if sem_campo:
@@ -354,7 +357,8 @@ class LinkImportDialog(QDialog):
         elif com_erro:
             rotulo, habilitado = "Corrija as pendências na planilha", False
         elif prontos:
-            rotulo, habilitado = f"Importar {prontos} link(s)", True
+            rotulo = f"Importar {plural(prontos, 'link', 'links')}"
+            habilitado = True
         else:
             rotulo, habilitado = "Importar links", False
         self.import_button.setText(rotulo)
@@ -463,11 +467,13 @@ class LinkImportDialog(QDialog):
         self._set_busy(False)
         extras = []
         if summary.get("prefixes"):
-            extras.append(f"{summary['prefixes']} prefixo(s) envolvidos")
+            extras.append(plural(summary["prefixes"], "prefixo envolvido", "prefixos envolvidos"))
         if summary.get("devices_created"):
-            extras.append(f"{summary['devices_created']} device(s) criado(s)")
+            extras.append(
+                plural(summary["devices_created"], "device criado", "devices criados")
+            )
         if summary.get("deduced_ips"):
-            extras.append(f"{summary['deduced_ips']} IP(s) deduzido(s)")
+            extras.append(plural(summary["deduced_ips"], "IP deduzido", "IPs deduzidos"))
         self.summary.set_summary(summary, extras)
         self.summary.set_details(self._result_rows(summary.get("results") or []))
         self._go_step(3)

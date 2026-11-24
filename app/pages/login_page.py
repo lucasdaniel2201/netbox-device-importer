@@ -8,6 +8,8 @@ protecao em uso, nunca como uma suposicao.
 
 from __future__ import annotations
 
+import html
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
@@ -26,7 +28,7 @@ from app.config import NETBOX_URL
 from app.paths import resource_path
 from app.ui import icons
 from app.ui.components import primary_button
-from app.ui.tokens import GAP_LG, GAP_MD, GAP_SM
+from app.ui.tokens import FONT_CAPTION, GAP_LG, GAP_MD, GAP_SM
 
 FEATURES: tuple[tuple[str, str, str], ...] = (
     (
@@ -165,15 +167,17 @@ class LoginPage(QWidget):
         self.server_icon = QLabel()
         self.server_icon.setFixedSize(16, 16)
         linha_servidor.addWidget(self.server_icon)
-        textos = QVBoxLayout()
-        textos.setSpacing(0)
-        rotulo = QLabel("SERVIDOR")
-        rotulo.setObjectName("FieldLabel")
-        self.server_label = QLabel(NETBOX_URL)
-        self.server_label.setObjectName("Mono")
-        textos.addWidget(rotulo)
-        textos.addWidget(self.server_label)
-        linha_servidor.addLayout(textos, stretch=1)
+        # Rotulo e URL num widget so: duas QLabel empilhadas dependiam da altura
+        # calculada pela fonte, que nem sempre bate com a fonte pintada (o texto
+        # do servidor aparecia sobreposto). Um rich text resolve o espacamento
+        # entre as linhas de uma vez.
+        self.server_label = QLabel()
+        self.server_label.setTextFormat(Qt.TextFormat.RichText)
+        # Sem word wrap: com ele o QLabel reporta altura minima de UMA linha e,
+        # quando a janela fica apertada, a segunda linha some/cobre a primeira.
+        self.server_label.setWordWrap(False)
+        self.server_label.setText(self._server_html(theme_mod.palette()))
+        linha_servidor.addWidget(self.server_label, stretch=1)
         cartao_layout.addWidget(servidor)
         cartao_layout.addSpacing(GAP_SM)
 
@@ -236,6 +240,16 @@ class LoginPage(QWidget):
         area_layout.addStretch(1)
 
         externo.addWidget(area, stretch=9)
+
+    def _server_html(self, palette) -> str:
+        """Servidor fixo em duas linhas de um unico texto (rotulo + URL)."""
+        cor = palette.text_muted
+        return (
+            f"<span style='font-size:{FONT_CAPTION}px;font-weight:700;color:{cor}'>"
+            "SERVIDOR</span>"
+            f"<br><span style='font-size:{FONT_CAPTION}px;color:{cor}'>"
+            f"{html.escape(NETBOX_URL)}</span>"
+        )
 
     # ------------------------------------------------------------------ acoes
     def _on_submit(self) -> None:
@@ -302,6 +316,10 @@ class LoginPage(QWidget):
         mostrar = self.token_edit.echoMode() == QLineEdit.EchoMode.Normal
         self._eye_action.setIcon(icons.icon("eye_off" if mostrar else "eye", palette.text_faint, 16))
         self.server_icon.setPixmap(icons.pixmap("server", palette.text_muted, 16))
+        self.server_label.setText(self._server_html(palette))
+        # Rich text: o minimo informado pelo QLabel e de uma linha, entao fixamos a
+        # altura de duas linhas para o layout nunca comprimir o bloco.
+        self.server_label.setMinimumHeight(self.server_label.sizeHint().height())
         if self._brand_logo is not None:
             from PySide6.QtGui import QPixmap
 

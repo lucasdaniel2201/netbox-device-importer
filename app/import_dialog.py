@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 
 from app import import_plan, provision, theme as _theme
 from app.spreadsheet import read_file
+from app.text import plural
 from app.ui import icons
 from app.ui.components import (
     Badge,
@@ -353,14 +354,14 @@ class ImportDialog(QDialog):
         aguardando = bloqueados - com_erro
         sem_campo = plan.missing_required
 
-        self.chip_ready.setText(f"{prontos} pronto(s)")
+        self.chip_ready.setText(plural(prontos, "pronto", "prontos"))
         self.chip_ready.show()
         self.chip_errors.setVisible(bool(com_erro))
         self.chip_errors.setText(f"{com_erro} com erro")
         self.chip_pending.setVisible(bool(aguardando))
         self.chip_pending.setText(f"{aguardando} aguardando referência")
         self.chip_refs.setVisible(bool(faltando))
-        self.chip_refs.setText(f"{faltando} referência(s) a criar")
+        self.chip_refs.setText(plural(faltando, "referência a criar", "referências a criar"))
         self.chip_fields.setVisible(bool(sem_campo))
         self.chip_fields.setText(
             "campo do NetBox sem valor: " + ", ".join(sem_campo) if sem_campo else ""
@@ -368,7 +369,7 @@ class ImportDialog(QDialog):
 
         partes = []
         if bloqueados:
-            partes.append(f"{bloqueados} linha(s) ainda bloqueada(s)")
+            partes.append(plural(bloqueados, "linha ainda bloqueada", "linhas ainda bloqueadas"))
         if not plan.deferred and not partes:
             partes.append("Tudo pronto: cada linha será conferida no NetBox antes de gravar.")
         if plan.deferred:
@@ -405,7 +406,8 @@ class ImportDialog(QDialog):
         elif bloqueados:
             rotulo, habilitado = "Corrija as pendências na planilha", False
         elif prontos:
-            rotulo, habilitado = f"Importar {prontos} câmeras", True
+            rotulo = f"Importar {plural(prontos, 'câmera', 'câmeras')}"
+            habilitado = True
         else:
             rotulo, habilitado = "Importar câmeras", False
         self.import_button.setText(rotulo)

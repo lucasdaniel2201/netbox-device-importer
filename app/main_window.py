@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QThread, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import QApplication, QFileDialog, QMainWindow, QStackedWidget
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -66,11 +66,17 @@ def snapshot_user(snapshot: dict) -> str:
 
 
 class MainWindow(QMainWindow):
+    # Tamanho preferido da janela. O tamanho efetivo e limitado a area util da tela
+    # em `_fit_to_screen`: em notebook com escala de 150% o "1280x880" logico nao
+    # cabe e a barra de titulo acabava acima do topo do desktop.
+    PREFERRED_SIZE = (1280, 880)
+    MIN_SIZE = (960, 600)
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Importador NetBox")
-        self.resize(1280, 880)
-        self.setMinimumSize(1040, 700)
+        self.setMinimumSize(*self.MIN_SIZE)
+        self._fit_to_screen()
 
         self._snapshot: dict | None = None
         self._connected = False
@@ -98,6 +104,31 @@ class MainWindow(QMainWindow):
         self._refresh_saved_token_ui()
         if self._saved_token:
             self._start_login()
+
+    def _fit_to_screen(self) -> None:
+        """Abre do tamanho preferido, mas sempre cabendo na area util da tela."""
+        tela = self.screen() or QGuiApplication.primaryScreen()
+        if tela is None:
+            self.resize(*self.PREFERRED_SIZE)
+            return
+        area = tela.availableGeometry()
+        largura_pref, altura_pref = self.PREFERRED_SIZE
+        largura_min, altura_min = self.MIN_SIZE
+        # Reserva margem para as bordas e a barra de titulo do Windows.
+        disponivel_largura = max(1, area.width() - 40)
+        disponivel_altura = max(1, area.height() - 80)
+        # O minimo nunca pode ser maior que a tela, senao o Windows coloca a
+        # barra de titulo fora do desktop e a janela fica impossivel de arrastar.
+        self.setMinimumSize(
+            min(largura_min, disponivel_largura), min(altura_min, disponivel_altura)
+        )
+        largura = min(largura_pref, disponivel_largura)
+        altura = min(altura_pref, disponivel_altura)
+        self.resize(largura, altura)
+        self.move(
+            area.x() + max(0, (area.width() - largura) // 2),
+            area.y() + max(0, (area.height() - altura) // 2),
+        )
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:

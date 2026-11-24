@@ -185,8 +185,8 @@ class TestWriteExampleTemplate(unittest.TestCase):
         self.assertEqual(
             formulas,
             [
-                f"={sp.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}",
-                f"={sp.LIST_SHEET_TITLE}!$B$2:$B${len(ROLES) + 1}",
+                f"{sp.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}",
+                f"{sp.LIST_SHEET_TITLE}!$B$2:$B${len(ROLES) + 1}",
             ],
         )
 
@@ -218,8 +218,10 @@ class TestWriteExampleTemplate(unittest.TestCase):
         self.assertEqual(len(validations), 1)
         self.assertEqual(validations[0].type, "list")
         self.assertEqual(
-            validations[0].formula1, f"={sp.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}"
+            validations[0].formula1, f"{sp.LIST_SHEET_TITLE}!$A$2:$A${len(SITES) + 1}"
         )
+        # Sem o "=" inicial: e o formato que o Google Sheets tambem interpreta.
+        self.assertFalse(validations[0].formula1.startswith("="))
 
     def test_dropdown_esta_na_coluna_site(self):
         from openpyxl.utils import get_column_letter
