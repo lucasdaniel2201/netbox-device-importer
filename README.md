@@ -223,7 +223,7 @@ Ao abrir, o app consulta a **última Release publicada** deste repositório numa
 
 ![Aviso de nova versão, com o botão de baixar](docs/screenshots/atualizacao.png)
 
-O botão baixa o instalador em streaming (são ~57 MB, nunca inteiros na memória), mostra o progresso no próprio botão e, ao terminar, abre o `Setup.exe` — o Inno Setup faz o upgrade por cima. Como essa é a única parte do app que baixa **e executa** um binário, a URL passa por validação antes de qualquer byte sair: só HTTPS, e só hosts do GitHub (`github.com`, `api.github.com` e subdomínios de `githubusercontent.com`, que é para onde o download de um asset redireciona). A Release que não tiver instalador anexado produz um aviso sem botão, apenas com o link.
+O botão baixa o instalador em streaming (são ~57 MB, nunca inteiros na memória), mostra o progresso no próprio botão e, ao terminar, agenda o `Setup.exe` e **fecha o app**. O Inno Setup só começa depois que o processo some: com o app aberto o Windows mantém o `.exe` travado e o instalador falha ao substituí-lo ("sem permissão para mover o `.exe`"). Como essa é a única parte do app que baixa **e executa** um binário, a URL passa por validação antes de qualquer byte sair: só HTTPS, e só hosts do GitHub (`github.com`, `api.github.com` e subdomínios de `githubusercontent.com`, que é para onde o download de um asset redireciona). A Release que não tiver instalador anexado produz um aviso sem botão, apenas com o link.
 
 A comparação quebra a versão em números (`1.10.0` → `(1, 10, 0)`) em vez de comparar o texto. Comparar texto diria que `"1.10.0"` é **menor** que `"1.9.0"` — e o aviso de atualização nunca apareceria justamente na passagem da 1.9 para a 1.10.
 
@@ -231,7 +231,7 @@ Quatro decisões que valem ser conhecidas:
 
 - **Falha na checagem automática é silenciosa.** Sem internet é o caso normal do analista em campo, não um erro para ele ver. Quando a consulta não funciona, simplesmente não acontece nada: nenhum aviso de erro, nenhum log na cara do usuário.
 - **Falha de uma ação sua não é.** Se o usuário clicou em baixar e algo deu errado, o erro aparece com a causa. O silêncio vale só para a consulta que acontece sozinha.
-- **O app não se substitui.** Ele baixa e abre o instalador; quem instala é o Inno Setup, com o usuário na frente. O app trocar o próprio `.exe` em execução exigiria um processo auxiliar (o Windows trava o arquivo em uso) e ficou **fora do escopo** de propósito.
+- **O app não se substitui.** Ele baixa, agenda o instalador e fecha; quem instala é o Inno Setup, com o usuário na frente. O app trocar o próprio `.exe` em execução exigiria um processo auxiliar (o Windows trava o arquivo em uso) — e é isso que o script de espera faz pelo Inno Setup, sem o app tocar no próprio arquivo.
 - **O repositório precisa ser público** para a consulta funcionar sem autenticação: em repositório privado, essa rota responde `404` para quem não está autenticado. Embutir um token no `.exe` foi descartado — quem tem o executável extrai o token.
 
 ## Arquitetura

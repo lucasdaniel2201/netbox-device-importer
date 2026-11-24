@@ -639,10 +639,13 @@ class MainWindow(QMainWindow):
         if self._shutting_down:
             return
         item = self._download_item
-        if item is None:
-            return
-        item.set_action_label("Abrindo o instalador...")
-        item.set_action_enabled(False)
+        if item is not None:
+            item.set_action_label("Instalando...")
+            item.set_action_enabled(False)
+        # A instalacao foi agendada para rodar depois deste processo sair. Fechar
+        # aqui e o que libera o .exe: com o app aberto o Windows mantem o arquivo
+        # travado e o Inno Setup falha ao substitui-lo ("sem permissao").
+        QTimer.singleShot(1200, self.close)
 
     def _on_download_failed(self, message: str) -> None:
         if self._shutting_down:

@@ -8,7 +8,7 @@
 ; relatorios continuam sendo salvos ao lado do executavel.
 
 #define AppName "Importador de Cameras"
-#define AppVersion "1.2.1"
+#define AppVersion "1.2.2"
 #define AppPublisher "L&K Tecnologia"
 #define AppExeName "ImportadorCameras.exe"
 #define SourceExe "dist\ImportadorCameras.exe"
@@ -30,6 +30,15 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 PrivilegesRequired=lowest
+; Fecha o app sozinho durante o upgrade. O Windows trava o .exe em uso: sem isso
+; o setup falha ao substituir o arquivo ("sem permissao para mover o .exe") -
+; era o que acontecia quando o proprio app abria o instalador com a janela aberta.
+; `force` nao pergunta nada (o app nao tem dado nao salvo) e vale inclusive para
+; quem ainda esta numa versao antiga, cuja logica de fechar o app era falha.
+CloseApplications=force
+; Quem reabre o app ao final e o [Run] abaixo; o Restart Manager nao precisa
+; relancar uma copia por conta propria.
+RestartApplications=no
 OutputDir=dist
 OutputBaseFilename=ImportadorCamerasSetup-{#AppVersion}
 SetupIconFile={#SourceIcon}

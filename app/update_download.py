@@ -13,6 +13,7 @@ byte sair: so aceitamos HTTPS em hosts do GitHub.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -65,25 +66,61 @@ def validar_url_download(url: str) -> None:
         )
 
 
-def abrir_instalador(caminho: str | Path) -> None:
-    """Abre o Setup.exe para o Inno Setup fazer o upgrade por cima.
+def agendar_instalacao_apos_sair(caminho: str | Path, pid: int | None = None) -> Path:
+    """Agenda o Setup para rodar DEPOIS que este processo terminar.
 
-    Separada em funcao para os testes espionarem: `os.startfile` so existe no
-    Windows, entao em outro sistema o erro e explicito em vez de quebrar o import.
+    O Windows mantem o `.exe` bloqueado enquanto o app esta aberto. Se o
+    instalador for aberto agora, o Inno Setup nao consegue substituir o arquivo e
+    falha com erro de permissao ("nao foi possivel mover o .exe"). Rodar o Setup
+    depois que o PID some resolve os dois lados: o app fecha sozinho e o
+    instalador so comeca quando o arquivo ja esta livre.
+
+    Usa `Wait-Process` do PowerShell, e nao um laco com `tasklist` no .cmd: o
+    parse da saida do tasklist nao encerrava o laco de forma confiavel e deixava
+    o instalador sem abrir. Devolve o caminho do script criado.
     """
-    startfile = getattr(os, "startfile", None)
-    if startfile is None:
-        raise RuntimeError("Abrir o instalador automaticamente so e possivel no Windows.")
-    startfile(str(caminho))
+    if os.name != "nt":
+        raise RuntimeError("Agendar a instalacao automatica so e possivel no Windows.")
+
+    pid = os.getpid() if pid is None else pid
+    pasta = Path(tempfile.gettempdir()) / DOWNLOAD_DIR_NAME
+    pasta.mkdir(parents=True, exist_ok=True)
+    script = pasta / "instalar-atualizacao.cmd"
+    # O caminho do Setup chega por %~1 e vai para o PowerShell por variavel de
+    # ambiente: e o jeito de atravessar as camadas cmd -> PowerShell sem quebrar
+    # com espacos ou acentos no caminho do usuario.
+    #
+    # `-ErrorAction SilentlyContinue` cobre o caso de o processo ja ter saido
+    # antes do Wait-Process comecar a observar.
+    script.write_text(
+        "@echo off\r\n"
+        'set "SETUP=%~1"\r\n'
+        "powershell -NoProfile -WindowStyle Hidden -Command "
+        f'"Wait-Process -Id {pid} -ErrorAction SilentlyContinue; '
+        'Start-Process -FilePath $env:SETUP"\r\n',
+        encoding="ascii",
+    )
+    subprocess.Popen(
+        ["cmd.exe", "/c", str(script), str(Path(caminho))],
+        # Sem herdar console nem handlers: o script precisa sobreviver ao app.
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        close_fds=True,
+    )
+    return script
 
 
 class UpdateDownloadWorker(QObject):
-    """Baixa o instalador, emite progresso e abre ao terminar."""
+    """Baixa o instalador, emite progresso e agenda a instalacao para depois do app.
+
+    O download NAO abre o Setup com o app aberto: o Windows trava o `.exe` em uso
+    e o Inno Setup falharia ao substitui-lo. O worker agenda a instalacao e a
+    janela fecha o app; o Setup roda em seguida.
+    """
 
     # Disparado pela UI (main thread); o slot roda na thread do download.
     request_download = Signal(str)
     progress = Signal(int, int)  # bytes baixados, total (0 quando desconhecido)
-    finished = Signal(str)       # caminho do Setup.exe baixado e aberto
+    finished = Signal(str)       # caminho do Setup.exe baixado e agendado
     failed = Signal(str)         # mensagem de erro para o usuario
 
     def __init__(self) -> None:
@@ -109,11 +146,13 @@ class UpdateDownloadWorker(QObject):
             return
 
         try:
-            abrir_instalador(caminho)
+            agendar_instalacao_apos_sair(caminho)
         except Exception as exc:
             # O download em si deu certo: mantemos o arquivo no disco para o
-            # usuario conseguir executar manualmente se a abertura automatica falhar.
-            self.failed.emit(f"Download concluido, mas nao foi possivel abrir o instalador: {exc}")
+            # usuario conseguir executar manualmente se o agendamento falhar.
+            self.failed.emit(
+                f"Download concluido, mas nao foi possivel preparar a instalacao: {exc}"
+            )
             return
 
         self.finished.emit(str(caminho))

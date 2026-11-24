@@ -4,6 +4,13 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [1.2.2] - 2026-11-24
+
+### Corrigido
+
+- **Atualização não conseguia substituir o `.exe`.** O app abria o `Setup.exe` com ele mesmo ainda aberto; o Windows trava o executável em uso e o Inno Setup falhava ao movê-lo ("sem permissão"). Agora o app **agenda** a instalação para depois de sair e **fecha sozinho**: um script em `%TEMP%` espera o processo terminar (`Wait-Process`) e só então abre o Setup.
+- **Instalador fecha o app durante o upgrade.** `CloseApplications=force` no `.iss`: o Inno Setup usa o Restart Manager do Windows para encerrar o app antes de trocar o arquivo. Isso também resolve para quem ainda está na 1.2.0 ou 1.2.1, cuja lógica de fechar o app era falha — o próprio instalador cuida disso.
+
 ## [1.2.1] - 2026-11-24
 
 ### Corrigido
