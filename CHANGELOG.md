@@ -4,6 +4,21 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [1.2.1] - 2026-11-24
+
+### Corrigido
+
+- **Listas suspensas do modelo não apareciam no Google Sheets.** A validação era gravada como `=Listas!$A$2:$A$…`, com `=` na frente. O Excel aceita e conserta ao salvar, mas o Google Sheets não interpreta essa forma e rebaixa a célula a texto livre — Site, Papel (role) e, no modelo de links, Device ficavam sem menu. A fórmula agora vai sem o `=`, no formato que os dois programas leem. Planilhas já importadas no Sheets precisam ser geradas de novo.
+- **Ícones cortados em telas com escala do Windows acima de 100%.** O desenho era ampliado duas vezes (o `devicePixelRatio` era aplicado no pixmap e de novo na escala do `QPainter`), então o ícone era cortado na borda e sobrava um fragmento que parecia uma vírgula antes do texto na barra lateral e nos botões.
+- **Campo do servidor com as duas linhas sobrepostas na tela de login.** Rótulo e URL viraram um único texto de duas linhas, com altura mínima fixa, em vez de duas `QLabel` empilhadas que dependiam da métrica da fonte.
+- **Janela abrindo maior que a área útil da tela.** Em notebook com escala de 150%, o tamanho fixo de 1280×880 deixava a barra de título acima do topo do desktop, sem como arrastar, minimizar ou fechar. A janela agora se limita à área útil, centraliza e reduz o tamanho mínimo quando a tela é menor.
+- **`(s)` vazando na interface.** Textos como `4 pronto(s)`, `2 referência(s) a criar` e `1 linha(s) ainda bloqueada(s)` passaram a concordar em número (`app/text.py`, `plural()`). O mesmo vale para o resumo, o diálogo de links e o histórico (`1 criado · 2 erros`).
+- Mensagens de validação de planilha sem o `(s)`: "Coluna obrigatoria ausente" / "Colunas obrigatorias ausentes" e "Nome duplicado na linha:" / "nas linhas:".
+
+### Removido
+
+- Código morto sem nenhuma referência: aliases de cor legados do `theme.py` (`TEXT`, `CARD`, `ERROR`…), `build_dark_palette`, `current_mode`, `can_store`, `site_tenants`, `writable_optional_columns`, `CONTENT_MAX_WIDTH` e os componentes `EmptyState`, `field_label` e `spacer`.
+
 ## [1.2.0] - 2026-11-03
 
 ### Alterado
