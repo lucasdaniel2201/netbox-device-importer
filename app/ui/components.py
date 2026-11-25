@@ -75,8 +75,14 @@ class SectionHeader(QWidget):
         self.subtitle_label = QLabel(subtitle)
         self.subtitle_label.setObjectName("CardSubtitle")
         self.subtitle_label.setWordWrap(True)
-        self.subtitle_label.setVisible(bool(subtitle))
         coluna.addWidget(self.subtitle_label)
+        # NUNCA chamar setVisible(True) num widget ainda sem pai: o `coluna` so
+        # ganha dono no `row.addLayout` abaixo, entao o Qt trata o label como
+        # janela de nivel superior e a mostra - era a causa das janelinhas que
+        # piscavam no centro da tela ao abrir o app (12 subtitulos, um por vez).
+        # Esconder um widget nunca mostrado e inofensivo; mostrar, nao.
+        if not subtitle:
+            self.subtitle_label.hide()
         row.addLayout(coluna, stretch=1)
 
         self.actions = QHBoxLayout()
@@ -141,7 +147,11 @@ class StatTile(QFrame):
         self.value.setObjectName("StatValue")
         self.hint = QLabel(hint)
         self.hint.setObjectName("StatHint")
-        self.hint.setVisible(bool(hint))
+        if not hint:
+            # Ver a nota em `SectionHeader`: `setVisible` num filho ainda solto
+            # vira janela e pisca na tela. Aqui o label e filho do tile desde o
+            # inicio, mas `hide()` mantem a mesma regra em todo o modulo.
+            self.hint.hide()
 
         layout.addWidget(self.label)
         layout.addWidget(self.value)
@@ -266,8 +276,13 @@ class Banner(QFrame):
         row.addLayout(coluna, stretch=1)
 
         self.set_kind(kind)
-        self.title_label.setVisible(bool(title))
-        self.text_label.setVisible(bool(text))
+        # So `hide()`: ver a nota em `SectionHeader`. Aqui o layout ja deu pai aos
+        # labels, mas manter a regra evita que reordenar o construtor ressuscite
+        # as janelinhas.
+        if not title:
+            self.title_label.hide()
+        if not text:
+            self.text_label.hide()
         self.apply_theme(theme_mod.palette())
 
     def set_kind(self, kind: str) -> None:
