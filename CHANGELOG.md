@@ -6,6 +6,11 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ## [Não lançado]
 
+### Adicionado
+
+- **Passo a passo do token na tela de login.** A linha cinza "Profile → API Tokens → Create" virou uma lista numerada em quatro passos, para quem nunca mexeu na API do NetBox.
+- **Botão "Abrir a página de tokens no navegador"**, que leva direto a `/user/api-tokens/add/` no servidor configurado. Como o usuário já tem a sessão do NetBox aberta no navegador, a página vem autenticada e ele só clica em Criar e copia — o app nunca pede a senha. Se o navegador não abrir, a URL aparece no aviso em vez de silêncio.
+
 ### Acessibilidade
 
 - **Foco de teclado visível em todos os controles.** Botões tinham apenas troca de `border-color`, o que sumia no `ghost` (borda transparente) e sobre o acento do primário; agora o foco desenha um anel de 2px na cor de texto (15:1 no escuro, 17:1 no claro). Botões de ícone, itens de link e a linha selecionada da tabela também passaram a mostrar foco.
@@ -15,6 +20,8 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 ### Corrigido
 
+- **Aviso de token guardado encostava no passo a passo.** Em 1920×1080 com 125% de escala o texto "Já existe um token guardado" ficava a −3px da base do painel (sobreposto). Causa: o botão "Abrir página de tokens" tinha `minimumSizeHint` de 478px e empurrava o painel para 502px dentro de um cartão de 420 — o painel transbordava, o texto era medido numa largura falsa e o layout comprimia. Corrigido com largura fixa do cartão, política `Ignored` no botão e recálculo da altura dos passos na largura real. O teste `test_login_layout.py` agora também verifica esse espaçamento, nos quatro tamanhos de janela.
+- **Texto do passo a passo se sobrepunha na tela de login.** O mesmo defeito do campo do servidor: o `QVBoxLayout` do cartão comprimia o painel abaixo da altura que o conteúdo pedia (214px onde precisava de 261), e as linhas de cada passo se cruzavam. O painel agora usa `SetMinimumSize` no layout e o formulário ficou rolável, então em janela baixa a tela rola em vez de espremer. Um teste novo (`tests/test_login_layout.py`) mede, em quatro tamanhos de janela, se algum texto com quebra de linha ficou menor que a altura necessária — é a trava contra a terceira reincidência.
 - **Contraste abaixo do mínimo em texto pequeno.** `text_faint` (legendas e dicas, 11-12px) estava em 3,2-3,9:1 e passou a 4,7-5,2:1 nos dois temas. No tema claro, as cores semânticas de badge (sucesso, atenção, info) estavam entre 3,9 e 4,5:1 e agora passam de 4,6:1.
 - **Toast usava a cor do tema escuro no tema claro.** A cor do tipo saiu do módulo e passou a vir da paleta ativa.
 - **Quatro estados ativos ao mesmo tempo** na lista estática "Como funciona": as bolinhas eram todas `current`, o que esvaziava o significado do acento. Viraram neutras.

@@ -714,6 +714,22 @@ QFrame#AuthCard {
     border-radius: 16px;
 }
 
+/* Passo a passo do token, na tela de login */
+QLabel#TokenStepsTitle {
+    color: $text;
+    font-size: ${font_small}px;
+    font-weight: 700;
+}
+/* Numero 10px: por isso text_muted (4,5:1+) e nunca text_faint. */
+QLabel#TokenStepDot {
+    border: 1px solid $border_strong;
+    border-radius: 9px;
+    background: $surface_hi;
+    color: $text_muted;
+    font-size: 10px;
+    font-weight: 700;
+}
+
 /* ------------------------------------------------------------ carregando */
 QWidget#LoadingPage {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,

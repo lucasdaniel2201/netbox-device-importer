@@ -34,7 +34,7 @@ from app.import_dialog import ImportDialog  # noqa: E402
 from app.link_dialog import LinkImportDialog  # noqa: E402
 from app.link_sheet import write_example_template as write_link_template  # noqa: E402
 from app.pages.loading_page import LoadingPage  # noqa: E402
-from app.pages.login_page import LoginPage  # noqa: E402
+from app.pages.login_page import LoginPage, token_page_url  # noqa: E402
 from app.paths import writable_base  # noqa: E402
 from app.session import SessionWorker  # noqa: E402
 from app.shell import SETTINGS_PAGE, Shell  # noqa: E402
@@ -162,6 +162,7 @@ class MainWindow(QMainWindow):
         login = self._login_page
         login.submit.connect(self._on_token_submitted)
         login.forget_button.clicked.connect(self._on_forget_token)
+        login.open_token_page.connect(self._on_open_token_page)
 
         shell = self._shell
         shell.refresh_clicked.connect(self._on_refresh_clicked)
@@ -321,6 +322,27 @@ class MainWindow(QMainWindow):
 
     def _on_open_report(self, path: str) -> None:
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def _on_open_token_page(self) -> None:
+        """Abre a tela de criacao de token no navegador padrao.
+
+        Abrir no navegador (e nao dentro do app) e proposital: o usuario ja tem
+        a sessao do NetBox aberta no navegador, entao a pagina vem autenticada e
+        ele so clica em Criar. O app nao pede nem ve a senha dele.
+        """
+        url = token_page_url(NETBOX_URL)
+        if not QDesktopServices.openUrl(QUrl(url)):
+            self._notify(
+                f"Não foi possível abrir o navegador. Acesse manualmente: {url}",
+                "warning",
+                9000,
+            )
+            return
+        self._notify(
+            "Abrindo a página de tokens no navegador. Crie o token e cole aqui.",
+            "info",
+            6000,
+        )
 
     # ------------------------------------------------------- callbacks da sessao
     def _on_connected(self, snapshot: dict) -> None:

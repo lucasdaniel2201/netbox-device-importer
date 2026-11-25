@@ -23,6 +23,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app import (  # noqa: E402
     credentials,
+    main_window as main_window_mod,
     session as session_mod,
     update_check,
 )
@@ -144,6 +145,30 @@ class TestAbertura(MainWindowTestCase):
         window._on_forget_token()
         self.assertFalse(credentials.has_token())
         self.assertEqual(window._saved_token, "")
+
+    def test_botao_do_token_abre_a_pagina_certa_no_navegador(self):
+        """O botao de ajuda abre /user/api-tokens/add/ no servidor configurado."""
+        window = self.abrir()
+        aberto: list[str] = []
+        with mock.patch.object(
+            main_window_mod.QDesktopServices, "openUrl", lambda url: aberto.append(url.toString())
+        ):
+            window._login_page.open_token_page.emit()
+
+        self.assertEqual(len(aberto), 1)
+        self.assertTrue(aberto[0].startswith(NETBOX_URL.rstrip("/")))
+        self.assertTrue(aberto[0].endswith("/user/api-tokens/add/"))
+
+    def test_falha_ao_abrir_navegador_avisa_com_a_url(self):
+        """Sem navegador, o usuario recebe a URL em vez de silencio."""
+        window = self.abrir()
+        with mock.patch.object(
+            main_window_mod.QDesktopServices, "openUrl", lambda _url: False
+        ):
+            window._on_open_token_page()
+
+        textos = [item._text.text() for item in window._toast._items]
+        self.assertTrue(any("/user/api-tokens/add/" in t for t in textos), textos)
 
     def test_aviso_de_conexao_lenta(self):
         window = self.abrir()

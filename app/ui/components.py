@@ -454,6 +454,35 @@ def danger_button(text: str, icon_name: str | None = None) -> IconTextButton:
     return botao
 
 
+class WrappedLabel(QLabel):
+    """Label com quebra de linha que informa a altura minima de verdade.
+
+    O `QLabel` com `wordWrap` reporta `minimumSizeHint` de UMA linha, entao um
+    layout vertical apertado o comprime abaixo do necessario e as linhas do
+    texto se sobrepoem. Aqui o minimo vertical passa a ser a altura que o texto
+    ocupa na largura atual, recalculada quando a largura muda.
+    """
+
+    def minimumSizeHint(self):  # noqa: N802
+        base = super().minimumSizeHint()
+        largura = self.width() or self.sizeHint().width()
+        if not self.wordWrap() or largura <= 0:
+            return base
+        return QSize(base.width(), self.heightForWidth(largura))
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        # A altura minima depende da largura: avisa o layout que ela mudou.
+        self.updateGeometry()
+
+
+def wrapped_label(text: str = "") -> WrappedLabel:
+    """Label secundario com quebra de linha e altura minima correta."""
+    label = WrappedLabel(text)
+    label.setWordWrap(True)
+    return label
+
+
 def muted(text: str, faint: bool = False) -> QLabel:
     """Texto secundario (a cor vem do QSS via propriedade, entao segue o tema)."""
     label = QLabel(text)

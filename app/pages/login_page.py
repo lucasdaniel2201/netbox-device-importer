@@ -10,14 +10,16 @@ from __future__ import annotations
 
 import html
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -27,7 +29,7 @@ from app import theme as theme_mod, version as version_mod
 from app.config import NETBOX_URL
 from app.paths import resource_path
 from app.ui import icons
-from app.ui.components import primary_button
+from app.ui.components import WrappedLabel, primary_button
 from app.ui.tokens import FONT_CAPTION, GAP_LG, GAP_MD, GAP_SM
 
 FEATURES: tuple[tuple[str, str, str], ...] = (
@@ -48,9 +50,40 @@ FEATURES: tuple[tuple[str, str, str], ...] = (
     ),
 )
 
+# Passos para obter o token. O texto existe porque o caminho no NetBox muda de
+# lugar conforme a versao e o usuario leigo nao sabe que "API token" mora no
+# perfil. Os passos nao citam nome de menu de proposito: quem executa o passo 2 e
+# o botao ao lado, e o rotulo do menu varia entre versoes do NetBox. A rota foi
+# conferida no codigo do NetBox 4.3.6 (account/urls.py: usertoken_add).
+TOKEN_STEPS: tuple[str, ...] = (
+    "Abra o NetBox no navegador e entre com seu usuário.",
+    "O botão abaixo já abre a página de tokens do seu perfil.",
+    "Crie o token com leitura e escrita e copie o valor.",
+    "Cole no campo acima. O valor aparece uma única vez.",
+)
+
+# Rota da tela de criacao de token no NetBox 4.3 (account/urls.py: usertoken_add).
+TOKEN_PAGE_PATH = "/user/api-tokens/add/"
+
+# Largura do cartao de login. O maximo e o valor que a tela sempre usou; o
+# minimo permite encolher em janela estreita em vez de espremer o conteudo.
+FORM_WIDTH = 420
+MIN_FORM_WIDTH = 320
+
+# Largura do circulo com o numero do passo (18px, ver _build_token_steps).
+PASSO_LARGURA = 18
+
+
+def token_page_url(base_url: str) -> str:
+    """URL da tela de criacao de token, a partir da URL do NetBox."""
+    return base_url.rstrip("/") + TOKEN_PAGE_PATH
+
 
 class LoginPage(QWidget):
     submit = Signal(str)
+    # Pede a janela para abrir a tela de token no navegador. A pagina nao abre
+    # nada sozinha: quem conhece o resto do app e a janela.
+    open_token_page = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -58,6 +91,11 @@ class LoginPage(QWidget):
         self._brand_panel: QFrame | None = None
         self._brand_logo: QLabel | None = None
         self._feature_icons: list[tuple[QLabel, str]] = []
+        # Preenchidos em _build_token_steps; usados por _ajustar_altura_passos
+        # depois que o layout deu largura aos labels.
+        self._steps_panel: QFrame | None = None
+        self._steps_layout: QVBoxLayout | None = None
+        self._cartao: QFrame | None = None
 
         externo = QHBoxLayout(self)
         externo.setContentsMargins(0, 0, 0, 0)
@@ -136,18 +174,39 @@ class LoginPage(QWidget):
 
     # ---------------------------------------------------------------- formulario
     def _build_form(self, externo: QHBoxLayout) -> None:
+        # Area rolavel: o cartao tem mais conteudo do que cabe numa janela baixa.
+        # Sem a rolagem, o layout comprimia os QLabel com wordWrap abaixo da
+        # altura necessaria e as linhas do passo a passo se sobrepunham (o mesmo
+        # defeito que o campo do servidor teve antes).
+        self.form_scroll = QScrollArea()
+        self.form_scroll.setObjectName("PageArea")
+        self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
         area = QWidget()
         area.setObjectName("PageArea")
         area_layout = QVBoxLayout(area)
         area_layout.setContentsMargins(48, 40, 48, 32)
-        area_layout.addStretch(1)
+        # Sem stretches: com `addStretch` nas duas pontas o conteudo era espremido
+        # entre elas quando a janela ficava menor que a altura do cartao, e o
+        # passo a passo se sobrepunha. A area rolavel cuida do excedente.
+        area_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         cartao = QFrame()
         cartao.setObjectName("AuthCard")
-        cartao.setFixedWidth(420)
+        self._cartao = cartao
+        # Largura fixa: um cartao que muda de largura com o conteudo do aviso
+        # recalculava a altura dos textos e a sobreposicao voltava em tamanhos
+        # diferentes. 420 e a largura que a tela sempre usou; o container
+        # rolavel ja cuida de janela menor.
+        cartao.setFixedWidth(FORM_WIDTH)
         cartao_layout = QVBoxLayout(cartao)
         cartao_layout.setContentsMargins(32, 32, 32, 28)
         cartao_layout.setSpacing(GAP_MD)
+        # SEM setSizeConstraint aqui: SetMinAndMaxSize ignora o setFixedWidth do
+        # cartao (a largura ia para 544) e SetMinimumSize espremia o conteudo.
+        # A altura certa vem de _reflow_cartao, que mede o texto na largura real.
 
         titulo = QLabel("Entrar no NetBox")
         titulo.setObjectName("AuthTitle")
@@ -202,30 +261,47 @@ class LoginPage(QWidget):
         self.token_edit.addAction(self._eye_action, QLineEdit.ActionPosition.TrailingPosition)
         cartao_layout.addWidget(self.token_edit)
 
-        ajuda = QLabel(
-            "No NetBox: clique no seu nome (canto superior direito) → "
-            "Profile → API Tokens → Create."
-        )
-        ajuda.setProperty("faint", "true")
-        ajuda.setWordWrap(True)
-        cartao_layout.addWidget(ajuda)
+        cartao_layout.addWidget(self._build_token_steps())
+
+        # Aviso de token guardado + acao de esquecer, num bloco proprio.
+        # Soltos no layout do cartao, o aviso ficava a -3px do painel de passos
+        # (grudado, chegando a encostar). O bloco garante o respiro acima dele e
+        # o par aviso/acao continua junto, que e como ele deve ser lido.
+        self.saved_block = QWidget()
+        bloco = QVBoxLayout(self.saved_block)
+        # Sem margem no bloco: o respiro vem do `addSpacing` abaixo, no layout do
+        # cartao. Margem dentro do bloco entrava na conta do `minimumSizeHint`
+        # do proprio widget e o Qt posicionava o bloco 16px acima, invadindo o
+        # painel dos passos.
+        bloco.setContentsMargins(0, 0, 0, 0)
+        bloco.setSpacing(GAP_SM)
 
         self.saved_note = QLabel("")
         self.saved_note.setProperty("muted", "true")
         self.saved_note.setWordWrap(True)
-        self.saved_note.hide()
-        cartao_layout.addWidget(self.saved_note)
+        bloco.addWidget(self.saved_note)
 
         self.forget_button = QPushButton("Esquecer token guardado")
         self.forget_button.setObjectName("linkButton")
         self.forget_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.forget_button.hide()
-        cartao_layout.addWidget(self.forget_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        bloco.addWidget(self.forget_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        # Bloco inteiro escondido: sem o aviso nao ha o que esquecer.
+        self.saved_block.hide()
+        # Respiro entre o painel de passos e o aviso, no layout do cartao (nao
+        # dentro do bloco, que e medido como um widget unico).
+        cartao_layout.addSpacing(GAP_MD)
+        cartao_layout.addWidget(self.saved_block)
 
         self.login_error_label = QLabel("")
         self.login_error_label.setObjectName("InlineError")
         self.login_error_label.setWordWrap(True)
         self.login_error_label.hide()
+        # `hide()` esconde mas nao zera a altura: o label ficava com 480px no
+        # layout e, mesmo invisivel, empurrava o aviso de token guardado para
+        # cima do painel de passos.
+        self.login_error_label.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         cartao_layout.addWidget(self.login_error_label)
 
         cartao_layout.addSpacing(GAP_SM)
@@ -243,9 +319,131 @@ class LoginPage(QWidget):
         cartao_layout.addWidget(nota)
 
         area_layout.addWidget(cartao, 0, Qt.AlignmentFlag.AlignHCenter)
-        area_layout.addStretch(1)
+        self.form_scroll.setWidget(area)
 
-        externo.addWidget(area, stretch=9)
+        externo.addWidget(self.form_scroll, stretch=9)
+
+    def _build_token_steps(self) -> QFrame:
+        """Passo a passo para obter o token, com a acao de abrir a pagina certa.
+
+        Antes era uma unica linha cinza dizendo "Profile -> API Tokens -> Create":
+        o caminho muda entre versoes do NetBox e quem nunca usou a API nao sabe
+        onde ele mora. Aqui vira lista numerada, e o botao abre a tela de criacao
+        ja no servidor configurado - o usuario so clica em Criar e copia.
+        """
+        painel = QFrame()
+        painel.setObjectName("Card")
+        painel.setProperty("tone", "flat")
+        coluna = QVBoxLayout(painel)
+        coluna.setContentsMargins(GAP_MD, GAP_MD, GAP_MD, GAP_MD)
+        coluna.setSpacing(GAP_SM)
+        # SetMinimumSize obriga o painel a ter, no minimo, o que o layout precisa.
+        # Sem isso o QVBoxLayout do cartao espremia o painel (214px onde o
+        # conteudo pedia 261) e o texto dos passos se sobrepunha. Quem cuida do
+        # excedente em janela baixa e a area rolavel.
+        coluna.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+
+        titulo = QLabel("Como obter o token")
+        titulo.setObjectName("TokenStepsTitle")
+        coluna.addWidget(titulo)
+
+        for numero, texto in enumerate(TOKEN_STEPS, start=1):
+            linha = QHBoxLayout()
+            linha.setSpacing(GAP_SM)
+            passo = QLabel(str(numero))
+            passo.setObjectName("TokenStepDot")
+            passo.setFixedSize(18, 18)
+            passo.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            linha.addWidget(passo, alignment=Qt.AlignmentFlag.AlignTop)
+
+            descricao = WrappedLabel(texto)
+            descricao.setProperty("muted", "true")
+            descricao.setWordWrap(True)
+            # O texto e quem dita a altura da linha; sem o minimo de largura o
+            # QHBoxLayout deixava o label crescer alem do cartao.
+            descricao.setMinimumWidth(1)
+            linha.addWidget(descricao, stretch=1)
+            coluna.addLayout(linha)
+
+        self.open_token_button = QPushButton("Abrir a página de tokens no navegador")
+        # Secundario, nao primario: a acao principal desta tela continua sendo
+        # "Entrar". Este botao ajuda, nao compete.
+        self.open_token_button.setIcon(icons.icon("external", theme_mod.palette().text_muted, 16))
+        self.open_token_button.setIconSize(QSize(16, 16))
+        self.open_token_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_token_button.setMinimumHeight(36)
+        # O rotulo e longo: sem quebra, o `minimumSizeHint` do botao virava 478px
+        # e empurrava o cartao para 566 dentro de um espaco de 420 - o painel
+        # transbordava e o texto dos passos era medido numa largura falsa.
+        self.open_token_button.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
+        self.open_token_button.setText("Abrir página de tokens no navegador")
+        self.open_token_button.setToolTip(token_page_url(NETBOX_URL))
+        self.open_token_button.setAccessibleName(
+            "Abrir a página de criação de token no navegador"
+        )
+        self.open_token_button.clicked.connect(self.open_token_page.emit)
+        coluna.addWidget(self.open_token_button)
+        self._steps_panel = painel
+        self._steps_layout = coluna
+        return painel
+
+    def _ajustar_altura_passos(self) -> None:
+        """Fixa a altura do painel de passos na que o texto realmente ocupa.
+
+        Medir `sizeHint()` cedo demais da um valor de UMA linha por label: na
+        construcao a largura ainda e 0, e mesmo depois do layout o painel pode
+        ser medido com a largura do cartao inteiro (452px), onde o texto cabe em
+        uma linha. O aviso de token guardado, entao, subia por cima do painel.
+        Aqui a largura usada e a que o painel de fato tem, e a altura e a soma do
+        `heightForWidth` de cada passo.
+        """
+        if self._steps_panel is None or self._steps_layout is None:
+            return
+        # A largura do CARTAO, nao a do painel: o painel chega a ser medido com
+        # 502px dentro de um cartao de 420, e nessa largura falsa o texto cabe em
+        # uma linha. Medir pelo cartao da o valor que o texto vai ocupar de fato.
+        cartao = self._steps_panel.parentWidget()
+        largura = cartao.width() if cartao is not None else self._steps_panel.width()
+        if largura <= 0:
+            return
+        margens = self._steps_layout.contentsMargins()
+        disponivel = largura - margens.left() - margens.right()
+        if disponivel <= 0:
+            return
+
+        total = margens.top() + margens.bottom()
+        total += self._altura_itens(self._steps_layout, disponivel)
+        if total > self._steps_panel.minimumHeight():
+            self._steps_panel.setMinimumHeight(total)
+
+    def _altura_itens(self, layout, disponivel: int) -> int:
+        """Soma a altura necessaria de um layout, descendo nos layouts aninhados.
+
+        Cada passo e um QHBoxLayout (numero + texto), nao um widget direto: ler
+        so `itemAt().widget()` do layout externo pulava justamente os textos, que
+        e onde a altura varia com a largura.
+        """
+        total = 0
+        for indice in range(layout.count()):
+            item = layout.itemAt(indice)
+            if item is None:
+                continue
+            widget = item.widget()
+            interno = item.layout()
+            if isinstance(widget, WrappedLabel):
+                largura_texto = disponivel - PASSO_LARGURA - GAP_SM
+                total += max(
+                    widget.heightForWidth(max(1, largura_texto)),
+                    widget.sizeHint().height(),
+                )
+            elif interno is not None:
+                total += self._altura_itens(interno, disponivel - PASSO_LARGURA - GAP_SM)
+            elif widget is not None and widget.isVisible():
+                total += widget.sizeHint().height()
+            total += layout.spacing()
+        return total
 
     def _server_html(self, palette) -> str:
         """Servidor fixo em duas linhas de um unico texto (rotulo + URL)."""
@@ -297,15 +495,40 @@ class LoginPage(QWidget):
         self.saved_note.setText(
             f"Já existe um token guardado nesta máquina ({protection})."
         )
-        self.saved_note.setVisible(saved)
-        self.forget_button.setVisible(saved)
+        # O bloco inteiro, nao o label: e ele que carrega o respiro acima do
+        # aviso e agrupa o botao de esquecer.
+        self.saved_block.setVisible(saved)
+        # Mostrar o bloco muda a altura exigida pelo cartao. Sem isto o Qt
+        # redistribui o espaco em cima do que ja existe e o aviso sobe por cima
+        # do painel de passos (chegou a -15px).
+        self._reflow_cartao()
 
     def set_saved_token_invalid(self) -> None:
         self.saved_note.setText(
             "O token guardado nesta máquina não funcionou. Cole um token novo abaixo "
             "— ele substitui o antigo."
         )
-        self.saved_note.show()
+        self.saved_block.show()
+        self._reflow_cartao()
+
+    def _reflow_cartao(self) -> None:
+        """Ajusta a altura do painel de passos e do cartao ao conteudo real.
+
+        O `QLabel` com quebra de linha informa altura de UMA linha no `sizeHint`,
+        entao o layout distribuia menos altura do que o texto ocupa e os ultimos
+        itens se sobrepunham aos primeiros. Aqui a altura do painel e fixada na
+        soma real (medida na largura final) e, com ela, o layout do cartao e
+        reativado para reposicionar os filhos.
+        """
+        if self._cartao is None or self._steps_panel is None:
+            return
+        self._ajustar_altura_passos()
+        layout = self._cartao.layout()
+        if layout is None:
+            return
+        # `activate` redistribui usando os minimos atuais. Sem ele o Qt mantem as
+        # posicoes antigas e o bloco do aviso fica sobre o painel.
+        layout.activate()
 
     def focus_token(self) -> None:
         self.token_edit.setFocus()
@@ -316,6 +539,9 @@ class LoginPage(QWidget):
         if self._brand_panel is not None:
             self._brand_panel.setVisible(self.width() >= 900)
         super().resizeEvent(event)
+        # A altura do texto dos passos depende da largura: remede depois que o
+        # Qt distribuiu o espaco nesta largura.
+        self._ajustar_altura_passos()
 
     # ------------------------------------------------------------------- tema
     def apply_theme(self, palette) -> None:
@@ -326,6 +552,9 @@ class LoginPage(QWidget):
         # Rich text: o minimo informado pelo QLabel e de uma linha, entao fixamos a
         # altura de duas linhas para o layout nunca comprimir o bloco.
         self.server_label.setMinimumHeight(self.server_label.sizeHint().height())
+        self.open_token_button.setIcon(
+            icons.icon("external", palette.text_muted, 16, disabled_color=palette.disabled_text)
+        )
         if self._brand_logo is not None:
             from PySide6.QtGui import QPixmap
 
