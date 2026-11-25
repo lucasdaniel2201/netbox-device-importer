@@ -8,7 +8,7 @@
 ; relatorios continuam sendo salvos ao lado do executavel.
 
 #define AppName "Importador de Cameras"
-#define AppVersion "1.2.2"
+#define AppVersion "1.3.0"
 #define AppPublisher "L&K Tecnologia"
 #define AppExeName "ImportadorCameras.exe"
 #define SourceExe "dist\ImportadorCameras.exe"
