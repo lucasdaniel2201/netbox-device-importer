@@ -4,6 +4,13 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [1.3.1] - 2026-11-25
+
+### Corrigido
+
+- **Janelinhas vazias piscando no centro da tela ao abrir o app.** Durante a montagem da interface, três ou quatro janelas minúsculas apareciam e sumiam em sequência, sem conteúdo. Não havia nada sendo executado: eram `QLabel`s que o Qt mostrava como janelas de verdade. O `SectionHeader` — usado nos 12 cards do app — criava o subtítulo, chamava `setVisible(True)` **antes** de o label entrar num layout e só então o adicionava. Um widget visível e sem pai é, para o Qt, uma janela de nível superior: ele a exibia de fato e a destruía no `addWidget` seguinte. A regra agora é usar `hide()` quando o conteúdo está vazio, nunca `setVisible(True)` em widget ainda solto. O mesmo padrão existia, adormecido, em `StatTile` e `Banner`, e foi corrigido junto para não voltar ao reordenar um construtor. Medido por instrumentação do evento `Show`: o app abria **13 janelas de nível superior** (a principal e 12 labels) e passou a abrir **1**.
+- Teste novo `tests/test_sem_janelas_fantasma.py` monta a casca inteira e falha se qualquer widget se mostrar como janela — verificado contra o defeito real, não passou por acidente.
+
 ## [1.3.0] - 2026-11-25
 
 ### Adicionado
@@ -130,6 +137,10 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - Relatórios e log de erros passam para `%LOCALAPPDATA%\ImportadorNetBox` quando a pasta ao lado do executável não é gravável.
 
+[1.3.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.3.0...v1.3.1
+[1.3.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.2.2...v1.3.0
+[1.2.2]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.0.0...v1.0.1
