@@ -179,6 +179,10 @@ class IconButton(QToolButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         if tooltip:
             self.setToolTip(tooltip)
+            # Botao so de icone nao tem texto para o leitor de tela anunciar.
+            # Sem `accessibleName` o Qt cai no tooltip, mas ele muda com o estado
+            # (ex.: "Mudar para o tema claro" x "escuro"), entao fixamos a acao.
+            self.setAccessibleName(tooltip)
         self.apply_theme(theme_mod.palette())
 
     def apply_theme(self, palette) -> None:
@@ -206,6 +210,9 @@ class SearchField(QLineEdit):
         super().__init__(parent)
         self.setObjectName("SearchInput")
         self.setPlaceholderText(placeholder)
+        # Placeholder nao e rotulo: ele some ao digitar e o leitor de tela nao o
+        # usa como nome do campo.
+        self.setAccessibleName(placeholder.rstrip(". "))
         self.setClearButtonEnabled(True)
         self.setMinimumWidth(260)
         self._action = self.addAction(
@@ -423,13 +430,15 @@ class IconTextButton(QPushButton):
 def primary_button(text: str, icon_name: str | None = None) -> IconTextButton:
     botao = IconTextButton(text, icon_name, "primary")
     botao.setObjectName("primaryButton")
-    botao.setMinimumHeight(36)
+    # 40px: acima do piso de 24px do WCAG 2.5.8 e confortavel para mouse e toque
+    # sem engordar demais uma tela densa. Eram 36.
+    botao.setMinimumHeight(40)
     return botao
 
 
 def secondary_button(text: str, icon_name: str | None = None) -> IconTextButton:
     botao = IconTextButton(text, icon_name, "secondary")
-    botao.setMinimumHeight(36)
+    botao.setMinimumHeight(40)
     return botao
 
 

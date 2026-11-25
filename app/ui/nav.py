@@ -242,9 +242,13 @@ class ThemeButton(IconButton):
     def apply_theme(self, palette) -> None:
         # O icone mostra o destino: sol quando o tema claro e o proximo.
         self._name = "sun" if palette.is_dark else "moon"
-        self.setToolTip(
+        texto = (
             "Mudar para o tema claro" if palette.is_dark else "Mudar para o tema escuro"
         )
+        self.setToolTip(texto)
+        # O nome acessivel acompanha o tooltip, que muda com o tema: sem isso o
+        # leitor de tela anunciaria a acao do tema anterior.
+        self.setAccessibleName(texto)
         super().apply_theme(palette)
 
 

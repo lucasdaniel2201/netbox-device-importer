@@ -122,7 +122,7 @@ class DashboardPage(ScrollPage):
             ("device_roles", "Papéis"),
             ("device_types", "Tipos de device"),
             ("devices", "Devices"),
-            ("ip_addresses", "IP addresses"),
+            ("ip_addresses", "IPs"),
             ("prefixes", "Prefixos"),
         )
         for indice, (chave, rotulo) in enumerate(definicoes):
@@ -257,10 +257,14 @@ class DashboardPage(ScrollPage):
         )
         self.activity.search.hide()
         self.activity.set_empty_message(
-            "Nenhuma importação registrada ainda.", icon_name="history"
+            "Nenhuma importação ainda. Baixe o modelo e envie a primeira planilha.",
+            icon_name="history",
         )
         recentes.body.addWidget(self.activity)
         self.body.addWidget(recentes)
+        # Sem isto o card e o ultimo item da coluna e estica ate o fim da pagina,
+        # virando uma area vazia enorme quando ha poucas (ou nenhuma) execucao.
+        self.body.addStretch(1)
 
     # --------------------------------------------------------------- estado
     def set_snapshot(self, snapshot: dict) -> None:
@@ -341,7 +345,12 @@ class DashboardPage(ScrollPage):
             for run in runs
         ]
         self.activity.set_rows(linhas)
-        self.activity.fit_height(max_rows=5, max_height=300, min_height=150)
+        # Sem execucoes o card mostra so o convite (uma linha): 150px de minimo
+        # reservavam um bloco vazio grande no fim da pagina.
+        if runs:
+            self.activity.fit_height(max_rows=5, max_height=300, min_height=150)
+        else:
+            self.activity.fit_height(max_rows=5, max_height=300, min_height=96)
         self.history_button.setVisible(bool(runs))
 
     def apply_theme(self, palette) -> None:

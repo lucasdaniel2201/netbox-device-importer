@@ -17,7 +17,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from PySide6.QtCore import QObject, Signal  # noqa: E402
+from PySide6.QtCore import QObject, Qt, Signal  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app import theme  # noqa: E402
@@ -148,6 +149,20 @@ class TestDataTable(unittest.TestCase):
         self.table.set_rows([Row.of(Cell("2"), "CAM-A", Cell("pronto", kind="success"), payload="x")])
         self.table.table.selectRow(0)
         self.assertEqual(self.table.selected_payload(), "x")
+
+    def test_enter_e_espaco_ativam_a_linha(self):
+        """Tabela operavel por teclado: antes so o duplo clique do mouse abria."""
+        ativados: list = []
+        self.table.activated.connect(ativados.append)
+        self.table.set_rows(
+            [Row.of(Cell("2"), "CAM-A", Cell("pronto", kind="success"), payload="run-1")]
+        )
+        self.table.table.selectRow(0)
+        self.table.table.setFocus()
+
+        QTest.keyClick(self.table.table, Qt.Key.Key_Return)
+        QTest.keyClick(self.table.table, Qt.Key.Key_Space)
+        self.assertEqual(ativados, ["run-1", "run-1"])
 
 
 class TestTema(unittest.TestCase):

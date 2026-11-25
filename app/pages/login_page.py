@@ -188,7 +188,13 @@ class LoginPage(QWidget):
         self.token_edit = QLineEdit()
         self.token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.token_edit.setPlaceholderText("Cole o token aqui")
-        self.token_edit.setMinimumHeight(38)
+        # O rotulo "TOKEN DE ACESSO" esta acima, mas nao e um <label for>: no Qt
+        # nao existe essa ligacao, entao o nome acessivel vai explicito.
+        self.token_edit.setAccessibleName("Token de acesso")
+        self.token_edit.setAccessibleDescription(
+            "Token de API do NetBox. Cole o valor e pressione Enter para entrar."
+        )
+        self.token_edit.setMinimumHeight(40)
         self.token_edit.returnPressed.connect(self._on_submit)
         self._eye_action = QAction(self.token_edit)
         self._eye_action.setToolTip("Mostrar o token")

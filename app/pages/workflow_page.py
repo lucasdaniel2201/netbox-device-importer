@@ -119,7 +119,11 @@ class WorkflowPage(ScrollPage):
             linha.setSpacing(GAP_MD)
             numero = QLabel(str(indice))
             numero.setObjectName("StepDot")
-            numero.setProperty("state", "current")
+            # Esta lista e um explicador estatico, nao o indicador de etapa do
+            # dialogo. Marcar as quatro como "current" pintava quatro estados
+            # ativos ao mesmo tempo e esvaziava o acento, que no app significa
+            # "voce esta aqui". Aqui o numero e neutro.
+            numero.setProperty("state", "upcoming")
             numero.setFixedSize(26, 26)
             numero.setAlignment(Qt.AlignmentFlag.AlignCenter)
             linha.addWidget(numero, alignment=Qt.AlignmentFlag.AlignTop)

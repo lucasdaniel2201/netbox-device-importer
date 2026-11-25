@@ -4,6 +4,24 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [Não lançado]
+
+### Acessibilidade
+
+- **Foco de teclado visível em todos os controles.** Botões tinham apenas troca de `border-color`, o que sumia no `ghost` (borda transparente) e sobre o acento do primário; agora o foco desenha um anel de 2px na cor de texto (15:1 no escuro, 17:1 no claro). Botões de ícone, itens de link e a linha selecionada da tabela também passaram a mostrar foco.
+- **Tabela operável por teclado.** `Enter` e `Espaço` na linha selecionada fazem o mesmo que o duplo clique. Antes, abrir o relatório no Histórico exigia mouse. A dica na tela passou a citar as duas formas.
+- **Nome acessível nos controles sem texto.** Botões só de ícone (atualizar, tema), o `X` de fechar toast e o campo de busca anunciam o que fazem; o campo de token ganhou nome e descrição. Nenhum dos dois existia antes.
+- **Área clicável do fechar toast** subiu de 20×20 para 24×24 (piso do WCAG 2.5.8), e os botões principais de 36 para 40px.
+
+### Corrigido
+
+- **Contraste abaixo do mínimo em texto pequeno.** `text_faint` (legendas e dicas, 11-12px) estava em 3,2-3,9:1 e passou a 4,7-5,2:1 nos dois temas. No tema claro, as cores semânticas de badge (sucesso, atenção, info) estavam entre 3,9 e 4,5:1 e agora passam de 4,6:1.
+- **Toast usava a cor do tema escuro no tema claro.** A cor do tipo saiu do módulo e passou a vir da paleta ativa.
+- **Quatro estados ativos ao mesmo tempo** na lista estática "Como funciona": as bolinhas eram todas `current`, o que esvaziava o significado do acento. Viraram neutras.
+- **Mesmo conceito com dois nomes:** "Prefixos" no painel e "Prefixes" nas configurações; "IP addresses" e "IPs"; "Locations"/"Regions"/"Journal entries" sem tradução. Unificados em pt-BR.
+- **Card de execuções vazio ocupava ~240px** no fim do painel; agora acompanha o conteúdo (200px) e não estica.
+- **Tabela que ficava invisível** ao receber linhas depois de já ter passado pelo estado vazio (`maximumHeight` zerado por `fit_height`).
+
 ## [1.2.2] - 2026-11-24
 
 ### Corrigido

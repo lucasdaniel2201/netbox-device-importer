@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QRectF, Qt
+from PySide6.QtCore import QEvent, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QSizePolicy,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -31,6 +32,9 @@ from app import theme as theme_mod
 from app.ui import icons
 from app.ui.components import SearchField
 from app.ui.tokens import GAP_SM
+
+# Valor de "sem limite" do Qt para setMaximumHeight (QWIDGETSIZE_MAX).
+_SEM_LIMITE = 16777215
 
 
 @dataclass
@@ -117,6 +121,10 @@ class PillDelegate(QStyledItemDelegate):
 class DataTable(QWidget):
     """Tabela com barra de busca, contagem e ordenacao por coluna."""
 
+    # Enter/Espaco na linha selecionada. A tela liga isso ao mesmo destino do
+    # duplo clique, para a tabela ser operavel so com teclado.
+    activated = Signal(object)
+
     def __init__(
         self,
         columns: list[str],
@@ -182,11 +190,21 @@ class DataTable(QWidget):
         if status_column is not None:
             self.table.setItemDelegateForColumn(status_column, PillDelegate(self.table))
 
+        # Enter e Espaco ativam a linha selecionada. QTableWidget nao emite nada
+        # para eles por padrao, e sem isso a tabela so funcionava com o mouse.
+        self.table.installEventFilter(self)
+
         layout.addWidget(self.table, stretch=1)
+        # A tabela cresce ate a altura que `fit_height` define, mas nao estica
+        # alem disso: numa pagina rolavel ela empurrava o conteudo seguinte para
+        # fora da dobra mesmo com 0-2 linhas.
+        self.table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
 
         self.empty = QWidget()
         vazio = QVBoxLayout(self.empty)
-        vazio.setContentsMargins(0, 24, 0, 24)
+        # 16px em vez de 24: o estado vazio e um convite de uma linha, nao um bloco.
+        vazio.setContentsMargins(0, 16, 0, 16)
+        vazio.setSpacing(GAP_SM)
         vazio.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_icon = QLabel()
         self.empty_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -196,6 +214,11 @@ class DataTable(QWidget):
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         vazio.addWidget(self.empty_label)
         self.empty.hide()
+        # Quem estica o card vazio e o widget de estado vazio, nao a tabela: sem
+        # esta politica ele ocupava todo o espaco restante do layout.
+        self.empty.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum
+        )
         layout.addWidget(self.empty)
 
         self._empty_icon = "file"
@@ -231,6 +254,14 @@ class DataTable(QWidget):
         """Ajusta a altura ao numero de linhas: tabela de 3 linhas nao vira vazio."""
         linhas = max(1, min(self.table.rowCount(), max_rows))
         altura = 42 + row_height * linhas
+        # Sem linhas, quem manda no tamanho e o estado vazio: fixar a altura da
+        # tabela deixava o card com um bloco reservado que nunca era usado.
+        if self.table.rowCount() == 0:
+            self.table.setMinimumHeight(0)
+            self.table.setMaximumHeight(0)
+            self.empty.setMinimumHeight(min_height)
+            return
+        self.empty.setMinimumHeight(0)
         self.table.setFixedHeight(max(min_height, min(max_height, altura)))
 
     def set_empty_message(self, text: str, icon_name: str = "file") -> None:
@@ -268,6 +299,11 @@ class DataTable(QWidget):
                     )
                 self.table.setItem(indice, coluna, item)
         self.table.setUpdatesEnabled(True)
+        # `fit_height` zera a altura maxima quando nao ha linhas. Sem este reset,
+        # uma tabela que ja passou pelo estado vazio e depois recebe linhas sem
+        # nova chamada a `fit_height` ficaria invisivel (altura 0).
+        if self.table.rowCount() > 0:
+            self.table.setMaximumHeight(_SEM_LIMITE)
         self._apply_filter()
 
     @staticmethod
@@ -278,6 +314,17 @@ class DataTable(QWidget):
         if cell.sort_key is not None:
             return cell.sort_key
         return cell.text.casefold()
+
+    def eventFilter(self, watched, event) -> bool:  # noqa: N802
+        """Enter/Espaco na tabela ativam a linha, como o duplo clique."""
+        if watched is self.table and event.type() == QEvent.Type.KeyPress:
+            tecla = event.key()
+            if tecla in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                payload = self.selected_payload()
+                if payload is not None:
+                    self.activated.emit(payload)
+                    return True
+        return super().eventFilter(watched, event)
 
     def _on_header_clicked(self, column: int) -> None:
         if column == self._sort_column:

@@ -41,8 +41,8 @@ PREVIEW_LIMIT = 100
 
 SET_LABELS: tuple[tuple[str, str], ...] = (
     ("sites", "Sites"),
-    ("locations", "Locations"),
-    ("regions", "Regions"),
+    ("locations", "Locais"),
+    ("regions", "Regiões"),
     ("site_groups", "Grupos de site"),
     ("racks", "Racks"),
     ("device_roles", "Papéis de device (roles)"),
@@ -55,22 +55,22 @@ SET_LABELS: tuple[tuple[str, str], ...] = (
 COUNT_LABELS: tuple[tuple[str, str], ...] = (
     ("devices", "Devices"),
     ("interfaces", "Interfaces"),
-    ("ip_addresses", "IP addresses"),
-    ("prefixes", "Prefixes"),
-    ("journal_entries", "Journal entries"),
+    ("ip_addresses", "IPs"),
+    ("prefixes", "Prefixos"),
+    ("journal_entries", "Entradas de diário"),
 )
 
 ENDPOINT_LABELS: tuple[tuple[str, str], ...] = (
     ("device", "Devices"),
-    ("device_type", "Device types"),
+    ("device_type", "Tipos de device"),
     ("manufacturer", "Fabricantes"),
     ("device_role", "Papéis (roles)"),
     ("site", "Sites"),
-    ("location", "Locations"),
+    ("location", "Locais"),
     ("tenant", "Tenants"),
     ("interface", "Interfaces"),
-    ("ip_address", "IP addresses"),
-    ("prefix", "Prefixos de IP"),
+    ("ip_address", "IPs"),
+    ("prefix", "Prefixos"),
     ("tag", "Tags"),
 )
 

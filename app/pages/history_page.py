@@ -60,6 +60,7 @@ class HistoryPage(ScrollPage):
         )
         self.table.table.itemDoubleClicked.connect(self._on_double_click)
         self.table.table.itemSelectionChanged.connect(self._on_selection)
+        self.table.activated.connect(self._on_activated)
         cartao.body.addWidget(self.table)
 
         self.detail = QLabel("Selecione uma execução para ver o caminho do relatório.")
@@ -96,7 +97,7 @@ class HistoryPage(ScrollPage):
         if runs:
             self.detail.setText(
                 "Selecione uma execução para ver o caminho do relatório. "
-                "Duplo clique abre o JSON."
+                "Enter ou duplo clique abre o JSON."
             )
         else:
             self.detail.setText(
@@ -108,12 +109,17 @@ class HistoryPage(ScrollPage):
         run = self.table.selected_payload()
         if not isinstance(run, Run):
             return
-        self.detail.setText(f"{run.path}   ·   duplo clique abre o relatório JSON")
+        self.detail.setText(f"{run.path}   ·   Enter ou duplo clique abre o relatório JSON")
 
     def _on_double_click(self, _item) -> None:
         run = self.table.selected_payload()
         if isinstance(run, Run):
             self.open_report.emit(str(run.path))
+
+    def _on_activated(self, payload) -> None:
+        """Enter/Espaco na linha: mesma acao do duplo clique, sem mouse."""
+        if isinstance(payload, Run):
+            self.open_report.emit(str(payload.path))
 
     # ------------------------------------------------------------------- tema
     def apply_theme(self, palette) -> None:

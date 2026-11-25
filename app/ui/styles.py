@@ -269,8 +269,14 @@ QPushButton:disabled {
     border-color: $border;
     color: $disabled_text;
 }
+/* Anel de foco visivel. So trocar a cor da borda nao funciona em botao
+   transparente (ghost) nem sobre o acento: aqui o foco ganha um anel de 2px
+   com 1px de respiro, usando a cor de texto (15:1 no escuro, 17:1 no claro)
+   em vez do acento, que sobre o proprio acento do botao primario sumiria. */
 QPushButton:focus {
-    border-color: $accent;
+    border-color: $text;
+    border-width: 2px;
+    padding: 7px 13px;
 }
 QPushButton#primaryButton {
     background: $accent;
@@ -322,6 +328,12 @@ QPushButton#ghostButton:disabled {
     background: transparent;
     color: $disabled_text;
 }
+/* O ghost e transparente: sem borda ele nao teria nenhum sinal de foco. */
+QPushButton#ghostButton:focus {
+    border-color: $text;
+    background: $surface_hi;
+    color: $text;
+}
 QPushButton#linkButton {
     background: transparent;
     border: none;
@@ -333,6 +345,10 @@ QPushButton#linkButton {
 QPushButton#linkButton:hover {
     color: $accent_hover;
     text-decoration: underline;
+}
+QPushButton#linkButton:focus {
+    text-decoration: underline;
+    color: $text;
 }
 QToolButton#iconButton {
     background: transparent;
@@ -354,6 +370,10 @@ QToolButton#iconButton:checked {
 }
 QToolButton#iconButton:disabled {
     background: transparent;
+}
+QToolButton#iconButton:focus {
+    background: $surface_hi;
+    border-color: $text;
 }
 QToolButton#iconButton::menu-indicator {
     image: none;
@@ -485,6 +505,16 @@ QTableWidget::item:selected, QTreeWidget::item:selected, QTableView::item:select
     background: $accent_soft;
     color: $text;
 }
+/* Linha selecionada continua visivel quando a tabela perde o foco: sem isso, o
+   usuario que navega por teclado perde a referencia ao sair da tabela. */
+QTableWidget:!active::item:selected, QTreeWidget:!active::item:selected {
+    background: $surface_hi;
+    color: $text;
+}
+/* A tabela recebe foco por teclado (setas + Enter); o quadro marca isso. */
+QTableWidget:focus, QTreeWidget:focus, QTableView:focus {
+    border: 1px solid $accent_border;
+}
 QTableWidget::item:hover, QTreeWidget::item:hover {
     background: $surface_hi;
 }
@@ -594,11 +624,13 @@ QLabel#BannerText {
 }
 
 /* --------------------------------------------------------------- stepper */
+/* O numero tem 11px: precisa de 4,5:1. text_faint ficava em 4,1-4,3:1 sobre
+   surface_hi/accent_soft; text_muted passa com folga nos dois temas. */
 QLabel#StepDot {
     border: 1px solid $border_strong;
     border-radius: 13px;
     background: $surface_hi;
-    color: $text_faint;
+    color: $text_muted;
     font-size: ${font_caption}px;
     font-weight: 700;
 }
@@ -613,7 +645,7 @@ QLabel#StepDot[state="done"] {
     color: $on_accent;
 }
 QLabel#StepLabel {
-    color: $text_faint;
+    color: $text_muted;
     font-size: ${font_small}px;
     font-weight: 600;
 }

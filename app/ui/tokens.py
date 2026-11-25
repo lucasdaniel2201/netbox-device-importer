@@ -102,7 +102,10 @@ DARK = Palette(
     grid="#1A2431",
     text="#E8EEF5",
     text_muted="#9AAABD",
-    text_faint="#67788B",
+    # 4,7:1 sobre a superficie mais clara do tema (o pior caso). O valor anterior
+    # (#67788B) ficava em 3,9:1 - abaixo do minimo para texto de 11-12px, que e
+    # onde text_faint e usado (legendas, dicas, caminho de relatorio).
+    text_faint="#768697",
     disabled_text="#4C5C6E",
     accent="#4C9BFF",
     accent_hover="#6FB2FF",
@@ -134,7 +137,9 @@ LIGHT = Palette(
     grid="#E8EDF3",
     text="#101828",
     text_muted="#55637A",
-    text_faint="#7C8AA0",
+    # 4,7:1 no fundo da pagina e 4,8:1 sobre surface_alt - o pior caso do tema.
+    # O #7C8AA0 anterior ficava em 3,2:1, ilegivel para texto de 11-12px.
+    text_faint="#647081",
     disabled_text="#A3AEBE",
     accent="#1F6FD0",
     accent_hover="#1A5FB4",
@@ -142,13 +147,13 @@ LIGHT = Palette(
     accent_soft="#E8F1FC",
     accent_border="#BBD6F5",
     on_accent="#FFFFFF",
-    success="#0E8A5F",
+    success="#0D7C56",
     success_soft="#E4F5EE",
-    warning="#A96A00",
+    warning="#9B6100",
     warning_soft="#FDF3E2",
     danger="#C0392B",
     danger_soft="#FCEBE9",
-    info="#2563EB",
+    info="#2461E6",
     info_soft="#E8EEFD",
 )
 

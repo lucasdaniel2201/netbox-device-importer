@@ -41,10 +41,13 @@ KIND_STYLES = {
     # Icones escolhidos entre os glifos que EXISTEM na fonte Inter (empacotada):
     # check U+2713, multiplicacao U+00D7, exclamacao e "i". Evitar simbolos fora
     # da fonte (ex.: U+2715), que caem em fallback e renderizam deformados.
-    "success": {"accent": "#3DD68C", "icon": "\u2713", "duration": 4000},
-    "error": {"accent": "#F87171", "icon": "\u00d7", "duration": 9000},
-    "warning": {"accent": "#F2B84B", "icon": "!", "duration": 6000},
-    "info": {"accent": "#5B9DFF", "icon": "i", "duration": 4000},
+    #
+    # A cor NAO fica aqui: ela vem de `palette.kind_color(kind)`, senao o toast
+    # mantinha o verde/ambar do tema escuro no tema claro, onde ficam ilegiveis.
+    "success": {"icon": "\u2713", "duration": 4000},
+    "error": {"icon": "\u00d7", "duration": 9000},
+    "warning": {"icon": "!", "duration": 6000},
+    "info": {"icon": "i", "duration": 4000},
 }
 
 TOAST_WIDTH = 380
@@ -64,9 +67,13 @@ class CloseButton(QPushButton):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self.setFixedSize(20, 20)
+        # 24x24 e o piso de area clicavel do WCAG 2.5.8. Era 20x20.
+        self.setFixedSize(24, 24)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Fechar")
+        # O "X" e desenhado no paintEvent, entao o botao nao tem texto: o leitor
+        # de tela anunciaria apenas "botao".
+        self.setAccessibleName("Fechar aviso")
         self.setStyleSheet("QPushButton { background: transparent; border: none; }")
         p = theme.palette()
         self._color = QColor(p.text_faint)
@@ -88,7 +95,8 @@ class CloseButton(QPushButton):
         pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         painter.setPen(pen)
 
-        margin = 6
+        # O risco continua pequeno e centrado; a area clicavel e que cresceu.
+        margin = 8
         rect = self.rect().adjusted(margin, margin, -margin, -margin)
         painter.drawLine(QLineF(rect.topLeft(), rect.bottomRight()))
         painter.drawLine(QLineF(rect.topRight(), rect.bottomLeft()))

@@ -31,8 +31,8 @@ DEFAULT_STATUS = "active"
 # vincula a um device POR UMA INTERFACE; sem interface nao ha como pendurar o IP
 # nem definir o primary_ip4.
 NETWORK_DEFERRED_NOTE = (
-    "Interface (MAC) e IP nao foram criados: falta permissao de escrita em "
-    "dcim.interface / ipam.ip-address. Sem interface o NetBox nao vincula um IP ao device."
+    "Interface (MAC) e IP não foram criados: falta permissão de escrita em "
+    "dcim.interface / ipam.ip-address. Sem interface o NetBox não vincula um IP ao device."
 )
 
 

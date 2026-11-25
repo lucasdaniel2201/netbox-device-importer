@@ -122,12 +122,24 @@ class ToastTestCase(unittest.TestCase):
             toast_mod.KIND_STYLES["success"]["duration"],
         )
 
-    def test_tipos_tem_icone_e_cor(self):
+    def test_tipos_tem_icone(self):
         for kind in ("success", "error", "warning", "info"):
             with self.subTest(kind=kind):
-                estilo = toast_mod.KIND_STYLES[kind]
-                self.assertTrue(estilo["icon"])
-                self.assertTrue(estilo["accent"].startswith("#"))
+                self.assertTrue(toast_mod.KIND_STYLES[kind]["icon"])
+
+    def test_cor_do_tipo_vem_da_paleta(self):
+        """A cor nao pode ser literal no modulo: ela muda com o tema.
+
+        Antes o KIND_STYLES guardava o hex do tema escuro, e o toast ficava com
+        verde/ambar ilegiveis no tema claro.
+        """
+        from app.ui.tokens import DARK, LIGHT
+
+        for kind in ("success", "error", "warning", "info"):
+            with self.subTest(kind=kind):
+                self.assertNotIn("accent", toast_mod.KIND_STYLES[kind])
+                # A paleta resolve a cor do tipo nos dois temas.
+                self.assertNotEqual(DARK.kind_color(kind), LIGHT.kind_color(kind))
 
     def test_duracao_explicita_sobrepoe_o_padrao(self):
         self.manager.notify("Teste", "info", duration_ms=12000)
