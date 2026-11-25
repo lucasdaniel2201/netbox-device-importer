@@ -8,7 +8,7 @@
 ; relatorios continuam sendo salvos ao lado do executavel.
 
 #define AppName "Importador de Cameras"
-#define AppVersion "1.3.1"
+#define AppVersion "1.3.2"
 #define AppPublisher "L&K Tecnologia"
 #define AppExeName "ImportadorCameras.exe"
 #define SourceExe "dist\ImportadorCameras.exe"
@@ -65,4 +65,31 @@ Name: "{group}\Desinstalar {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExeName}"; Description: "Abrir {#AppName} agora"; Flags: nowait postinstall skipifsilent
+; O app e aberto pelo cmd com PYINSTALLER_RESET_ENVIRONMENT=1 de proposito.
+;
+; Quem instala uma atualizacao costuma chegar aqui pelo proprio app: ele baixa o
+; Setup, agenda a instalacao e fecha. O app e um executavel *onefile* do
+; PyInstaller, e enquanto roda ele mantem no ambiente `_PYI_ARCHIVE_FILE`,
+; `_PYI_APPLICATION_HOME_DIR` e `_PYI_PARENT_PROCESS_LEVEL`. O Setup herda isso e
+; repassa ao `.exe` abaixo - e o bootloader do `.exe`, vendo `_PYI_ARCHIVE_FILE`
+; igual ao proprio caminho (a atualizacao e por cima, mesmo arquivo), conclui que
+; e o processo FILHO do app antigo. Resultado: nao extrai nada, procura
+; `python312.dll` na pasta `_MEI` do app anterior (ja apagada) e a primeira
+; abertura depois de instalar falha com:
+;   "Failed to load Python DLL ...\LoadLibrary: nao foi possivel encontrar o modulo"
+; Abrir de novo pelo atalho funcionava, porque o atalho nao traz esse ambiente.
+;
+; `PYINSTALLER_RESET_ENVIRONMENT=1` e o mecanismo oficial do bootloader para
+; "ignore o ambiente herdado e comece do zero": ele le a variavel, descarta as
+; demais `_PYI_*` e se comporta como processo de topo. Assim funciona mesmo para
+; quem ainda esta em versao antiga, cujo codigo nao limpa o ambiente ao agendar.
+;
+; Detalhes que parecem cosmeticos e nao sao:
+;   - `set "VAR=1"` com as aspas: escrito como `set VAR=1 &`, o cmd define o valor
+;     como "1 " (com espaco no fim), e o bootloader compara com "1" exato - o
+;     reset seria ignorado em silencio. Verificado com `cmd /v:on`: com aspas da
+;     `[1]`, sem aspas da `[1 ]`;
+;   - `runhidden`: esconde a janela do cmd, senao pisca um console preto ao abrir;
+;   - `start "" "caminho"`: o primeiro "" e o titulo da janela; sem ele o cmd
+;     trataria o caminho como titulo.
+Filename: "{sys}\cmd.exe"; Parameters: "/c set ""PYINSTALLER_RESET_ENVIRONMENT=1"" & start """" ""{app}\{#AppExeName}"""; Description: "Abrir {#AppName} agora"; Flags: nowait postinstall skipifsilent runhidden

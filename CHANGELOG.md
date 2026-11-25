@@ -4,6 +4,18 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 
 O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o [versionamento semântico](https://semver.org/lang/pt-BR/). A versão do aplicativo vive em três arquivos mantidos em sincronia: `app/version.py` (lido pelo Python), `instalador.iss` (lido pelo Inno Setup) e `version_info.txt` (lido pelo Windows). O teste `tests/test_version.py` falha se algum deles divergir dos outros dois.
 
+## [1.3.2] - 2026-11-25
+
+### Corrigido
+
+- **"Failed to load Python DLL" na primeira abertura depois de instalar ou atualizar.** Fechar o aviso e abrir o app de novo funcionava, o que dava a impressão de instalação instável. Não era: o app é um executável *onefile* do PyInstaller e, enquanto roda, mantém no ambiente `_PYI_ARCHIVE_FILE`, `_PYI_APPLICATION_HOME_DIR` e `_PYI_PARENT_PROCESS_LEVEL` — o mecanismo pelo qual o bootloader reconhece os próprios processos filhos. Ao baixar e agendar a atualização, o Setup herdava essas variáveis e as repassava ao `.exe` que ele abre no `[Run]`. Como a atualização é por cima (mesmo caminho de arquivo), o `_PYI_ARCHIVE_FILE` herdado casava exatamente com o executável novo: o bootloader concluía que era o processo **filho** do app antigo, não extraía nada e tentava carregar `python312.dll` da pasta `_MEI` do app anterior, já apagada. O atalho funcionava por não carregar esse ambiente.
+
+  Corrigido nas duas pontas, porque uma só não cobre quem já está em versão antiga:
+  - `app/update_download.py`: o processo que agenda a instalação agora recebe o ambiente **sem** as variáveis do bootloader (`ambiente_sem_pyinstaller`), então a cadeia nem começa;
+  - `instalador.iss`: o `[Run]` abre o app via `cmd` com `PYINSTALLER_RESET_ENVIRONMENT=1`, o mecanismo oficial do bootloader para ignorar o ambiente herdado. Isso protege quem atualiza **de** uma versão antiga, cujo código ainda repassa as variáveis.
+
+  Reproduzido e verificado contra o `.exe` real instalado: com o ambiente herdado e a pasta `_MEI` ausente, o app morre com exatamente o texto do relato (`Failed to load Python DLL '...\_MEI00002c02\python312.dll'`); com `PYINSTALLER_RESET_ENVIRONMENT=1`, carrega. O valor com espaço (`1 `, que é o que `set VAR=1 &` grava no `cmd`) **não** funciona — o bootloader compara com `1` exato —, por isso o `set` no instalador usa aspas.
+
 ## [1.3.1] - 2026-11-25
 
 ### Corrigido
@@ -137,6 +149,7 @@ O formato segue o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e 
 
 - Relatórios e log de erros passam para `%LOCALAPPDATA%\ImportadorNetBox` quando a pasta ao lado do executável não é gravável.
 
+[1.3.2]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/lucasdaniel2201/netbox-device-importer/compare/v1.2.1...v1.2.2
