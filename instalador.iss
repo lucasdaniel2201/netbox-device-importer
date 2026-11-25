@@ -92,4 +92,4 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 ;   - `runhidden`: esconde a janela do cmd, senao pisca um console preto ao abrir;
 ;   - `start "" "caminho"`: o primeiro "" e o titulo da janela; sem ele o cmd
 ;     trataria o caminho como titulo.
-Filename: "{sys}\cmd.exe"; Parameters: "/c set ""PYINSTALLER_RESET_ENVIRONMENT=1"" & start """" ""{app}\{#AppExeName}"""; Description: "Abrir {#AppName} agora"; Flags: nowait postinstall skipifsilent runhidden
+Filename: "{cmd}"; Parameters: "/c set ""PYINSTALLER_RESET_ENVIRONMENT=1"" & start """" ""{app}\{#AppExeName}"""; Description: "Abrir {#AppName} agora"; Flags: nowait postinstall skipifsilent runhidden
