@@ -31,11 +31,46 @@ from app.updater import TIMEOUT_S  # noqa: E402
 CHUNK_SIZE = 64 * 1024
 DOWNLOAD_DIR_NAME = "ImportadorNetBox-updates"
 
+# Prefixos das variaveis que o bootloader do PyInstaller usa para reconhecer
+# processos da MESMA aplicacao. Nunca devem chegar a um processo que possa
+# abrir o app de novo (ver `ambiente_sem_pyinstaller`).
+PYINSTALLER_ENV_PREFIXES = ("_PYI_", "PYI_", "_MEI", "PYINSTALLER_")
+
 # Fronteira de confianca: o asset do GitHub pode vir de github.com/api.github.com
 # e, depois do redirect, de objects.githubusercontent.com (ou outro subdominio de
 # githubusercontent.com). Qualquer outro host e recusado ANTES do requests.get.
 GITHUB_HOSTS_EXATOS = {"github.com", "api.github.com"}
 GITHUB_USER_CONTENT_HOST = "githubusercontent.com"
+
+
+def ambiente_sem_pyinstaller(environ: dict | None = None) -> dict[str, str]:
+    """Copia do ambiente SEM as variaveis do bootloader do PyInstaller.
+
+    Este app e um executavel *onefile*. Enquanto roda, ele carrega no proprio
+    ambiente `_PYI_ARCHIVE_FILE`, `_PYI_APPLICATION_HOME_DIR` e
+    `_PYI_PARENT_PROCESS_LEVEL`, que sao o mecanismo pelo qual o bootloader
+    reconhece os proprios processos filhos. Todo processo que o app cria herda
+    isso - e o estrago aparece depois, longe daqui:
+
+    1. o app agenda o Setup (este modulo);
+    2. o Setup herda as variaveis e as repassa ao `.exe` que ele abre no `[Run]`;
+    3. o bootloader do `.exe` ve `_PYI_ARCHIVE_FILE` igual ao caminho de si
+       mesmo (a atualizacao e por cima: mesmo caminho) e conclui que e o
+       processo FILHO do app antigo, portanto nao extrai nada;
+    4. ele entao carrega `python312.dll` da pasta `_MEI` do app antigo, que ja
+       foi apagada, e a primeira abertura depois de instalar falha com
+       "Failed to load Python DLL ... LoadLibrary: nao foi possivel encontrar o
+       modulo especificado".
+
+    A segunda abertura funciona porque o atalho do Menu Iniciar inicia o app sem
+    esse ambiente. Limpar na origem evita que a cadeia comece.
+    """
+    fonte = os.environ if environ is None else environ
+    return {
+        chave: valor
+        for chave, valor in fonte.items()
+        if not chave.startswith(PYINSTALLER_ENV_PREFIXES)
+    }
 
 
 def _host_do_github(host: str) -> bool:
@@ -104,6 +139,10 @@ def agendar_instalacao_apos_sair(caminho: str | Path, pid: int | None = None) ->
         ["cmd.exe", "/c", str(script), str(Path(caminho))],
         # Sem herdar console nem handlers: o script precisa sobreviver ao app.
         creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+        # Sem as variaveis do bootloader: o Setup repassa o ambiente ao `.exe` que
+        # ele abre no [Run], e herdar `_PYI_*` faz essa primeira abertura falhar
+        # com "Failed to load Python DLL" (ver `ambiente_sem_pyinstaller`).
+        env=ambiente_sem_pyinstaller(),
         close_fds=True,
     )
     return script

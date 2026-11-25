@@ -81,6 +81,60 @@ class TestValidacaoUrl(unittest.TestCase):
             update_download.validar_url_download("http://github.com/owner/repo/Setup.exe")
 
 
+class TestAmbienteSemPyinstaller(unittest.TestCase):
+    """O app nao pode repassar as variaveis do bootloader a quem abra o app.
+
+    Sem isso, o Setup herda `_PYI_*` do app (que e onefile) e as repassa ao `.exe`
+    que abre no [Run]. O bootloader do `.exe` entao se confunde e a primeira
+    abertura depois de instalar falha com "Failed to load Python DLL".
+    """
+
+    def test_remove_as_variaveis_do_bootloader(self):
+        origem = {
+            "_PYI_ARCHIVE_FILE": r"C:\app\ImportadorCameras.exe",
+            "_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI00002c02",
+            "_PYI_PARENT_PROCESS_LEVEL": "1",
+            "_PYI_SPLASH_IPC": "0",
+            "PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI00002c02",
+            "PYI_ARCHIVE_FILE": r"C:\app\ImportadorCameras.exe",
+            "PYINSTALLER_RESET_ENVIRONMENT": "1",
+            "PYINSTALLER_STRICT_UNPACK_MODE": "1",
+            "_MEIPASS2": r"C:\Temp\_MEI00002c02",
+            "PATH": r"C:\Windows",
+            "TEMP": r"C:\Temp",
+        }
+        limpo = update_download.ambiente_sem_pyinstaller(origem)
+
+        self.assertEqual(
+            sorted(limpo),
+            ["PATH", "TEMP"],
+            f"sobrou variavel do bootloader: {sorted(limpo)}",
+        )
+        self.assertEqual(limpo["PATH"], r"C:\Windows")
+
+    def test_mantem_o_resto_do_ambiente_intacto(self):
+        origem = {"PATH": "x", "USERPROFILE": "y", "APPDATA": "z"}
+        self.assertEqual(update_download.ambiente_sem_pyinstaller(origem), origem)
+
+    def test_ambiente_vazio_nao_quebra(self):
+        self.assertEqual(update_download.ambiente_sem_pyinstaller({}), {})
+
+    def test_usa_o_ambiente_do_processo_quando_nao_recebe_nada(self):
+        with mock.patch.dict(
+            update_download.os.environ,
+            {"_PYI_ARCHIVE_FILE": "sujo", "MINHA_VARIAVEL": "limpa"},
+            clear=False,
+        ):
+            limpo = update_download.ambiente_sem_pyinstaller()
+        self.assertNotIn("_PYI_ARCHIVE_FILE", limpo)
+        self.assertEqual(limpo["MINHA_VARIAVEL"], "limpa")
+
+    def test_a_limpeza_nao_altera_o_ambiente_de_origem(self):
+        origem = {"_PYI_ARCHIVE_FILE": "x", "PATH": "y"}
+        update_download.ambiente_sem_pyinstaller(origem)
+        self.assertEqual(origem, {"_PYI_ARCHIVE_FILE": "x", "PATH": "y"})
+
+
 class TestAgendamentoDaInstalacao(unittest.TestCase):
     """O Setup roda DEPOIS do app sair, senao o .exe em uso nao pode ser trocado."""
 
@@ -111,6 +165,33 @@ class TestAgendamentoDaInstalacao(unittest.TestCase):
         self.assertIn("$env:SETUP", conteudo)
         args = popen.call_args[0][0]
         self.assertEqual(args[-1], str(setup))
+
+    def test_nao_repassa_as_variaveis_do_bootloader_ao_setup(self):
+        """Trava contra "Failed to load Python DLL" na primeira abertura.
+
+        O Setup e quem abre o app novo no [Run]; se ele herdar `_PYI_*`, o app
+        novo acredita ser filho do antigo e procura a DLL numa pasta _MEI morta.
+        """
+        setup = self.tmp / "Setup.exe"
+        sujo = {
+            "_PYI_ARCHIVE_FILE": r"C:\app\ImportadorCameras.exe",
+            "_PYI_APPLICATION_HOME_DIR": r"C:\Temp\_MEI00002c02",
+            "_PYI_PARENT_PROCESS_LEVEL": "1",
+            "CAMINHO_PRESERVADO": "sim",
+        }
+        with (
+            mock.patch.object(update_download.tempfile, "gettempdir", return_value=str(self.tmp)),
+            mock.patch.dict(update_download.os.environ, sujo, clear=False),
+            mock.patch.object(update_download.subprocess, "Popen") as popen,
+        ):
+            update_download.agendar_instalacao_apos_sair(setup, pid=1)
+
+        env_passado = popen.call_args[1]["env"]
+        self.assertNotIn("_PYI_ARCHIVE_FILE", env_passado)
+        self.assertNotIn("_PYI_APPLICATION_HOME_DIR", env_passado)
+        self.assertNotIn("_PYI_PARENT_PROCESS_LEVEL", env_passado)
+        self.assertEqual(env_passado["CAMINHO_PRESERVADO"], "sim")
+        self.assertIn("PATH", env_passado)
 
     def test_processo_e_destacado_para_sobreviver_ao_app(self):
         setup = self.tmp / "Setup.exe"
